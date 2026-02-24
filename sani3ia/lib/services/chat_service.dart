@@ -1,0 +1,897 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:rxdart/rxdart.dart';
+import 'package:snae3ya/models/chat_model.dart';
+import 'package:snae3ya/services/media_service.dart';
+import 'dart:io';
+
+class ChatService {
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  static final ChatService _instance = ChatService._internal();
+  factory ChatService() => _instance;
+  ChatService._internal();
+
+  // ⭐⭐ دالة لتحديد Collection المناسبة (جديدة)
+  String _getChatCollection(String? chatType) {
+    return chatType == 'product' ? 'market_chats' : 'chats';
+  }
+
+  // ⭐⭐ دالة معدلة لتوليد ID المحادثة باستخدام postId
+  String generateChatId(String user1Id, String user2Id, [String? postId]) {
+    final sortedIds = [user1Id, user2Id]..sort();
+    if (postId != null && postId.isNotEmpty) {
+      return '${sortedIds[0]}_${sortedIds[1]}_$postId';
+    } else {
+      return '${sortedIds[0]}_${sortedIds[1]}';
+    }
+  }
+
+  // ⭐⭐ **مُعدّل: إرسال رسالة جديدة مع Collection منفصلة (مع الحفاظ على كل الميزات)**
+  Future<void> sendMessage({
+    required String receiverId,
+    required String message,
+    String? postId,
+    bool isAvailabilityQuestion = false,
+    bool isAvailabilityResponse = false,
+    bool? availabilityStatus,
+    String? mediaUrl,
+    String? mediaType,
+    String? fileName,
+    int? fileSize,
+    String? chatType = 'job',
+  }) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) throw Exception('يجب تسجيل الدخول أولاً');
+
+      // التحقق من صحة البيانات
+      if (message.trim().isEmpty && mediaUrl == null) {
+        throw Exception('الرسالة لا يمكن أن تكون فارغة');
+      }
+
+      if (receiverId.isEmpty || receiverId == currentUser.uid) {
+        throw Exception('معرف المستقبل غير صالح');
+      }
+
+      if (isAvailabilityQuestion && isAvailabilityResponse) {
+        throw Exception('لا يمكن أن تكون الرسالة سؤال ورد في نفس الوقت');
+      }
+
+      // ⭐⭐ تحديد Collection المناسبة (جديد)
+      final collectionName = _getChatCollection(chatType);
+
+      // ⭐⭐ استخدام postId في توليد chatId
+      final chatId = generateChatId(currentUser.uid, receiverId, postId);
+      final messageRef = _firestore
+          .collection(collectionName)
+          .doc(chatId)
+          .collection('messages')
+          .doc();
+
+      // ⭐ جلب صورة وعنوان المنشور إذا كان هناك postId
+      String? postImage;
+      String? postTitle;
+      String? finalChatType = chatType;
+
+      if (postId != null && postId.isNotEmpty) {
+        try {
+          print('🔍 جاري جلب بيانات المنشور: $postId');
+
+          if (chatType == 'product') {
+            // جلب من products
+            final productDoc = await _firestore
+                .collection('products')
+                .doc(postId)
+                .get();
+
+            if (productDoc.exists) {
+              final productData = productDoc.data();
+              final images = productData?['imageUrls'] ?? [];
+              if (images is List && images.isNotEmpty) {
+                final firstImage = images[0];
+                if (firstImage is String && firstImage.isNotEmpty) {
+                  postImage = firstImage;
+                }
+              }
+              postTitle = productData?['title'] ?? 'منتج';
+              finalChatType = 'product';
+
+              if (postImage == null || postImage!.isEmpty) {
+                postImage = 'assets/images/default_product.png';
+              }
+
+              print('✅ تم جلب صورة المنتج: $postImage');
+              print('📝 عنوان المنتج: $postTitle');
+            }
+          } else {
+            // جلب من posts (الشغلانات)
+            final postDoc = await _firestore
+                .collection('posts')
+                .doc(postId)
+                .get();
+
+            if (postDoc.exists) {
+              final postData = postDoc.data();
+              final images = postData?['images'] ?? [];
+              if (images is List && images.isNotEmpty) {
+                final firstImage = images[0];
+                if (firstImage is String && firstImage.isNotEmpty) {
+                  postImage = firstImage;
+                }
+              }
+              postTitle = postData?['title'] ?? 'شغلانة';
+              finalChatType = 'job';
+
+              // ⭐ لو مفيش صور، جرب حقول أخرى
+              if (postImage == null || postImage!.isEmpty) {
+                postImage =
+                    postData?['imageUrl'] ??
+                    postData?['image'] ??
+                    postData?['postImage'] ??
+                    'assets/images/default_job_1.png';
+              }
+
+              print('✅ تم جلب صورة الشغلانة: $postImage');
+              print('📝 عنوان الشغلانة: $postTitle');
+            } else {
+              // لو مش موجود، استخدم الصورة الافتراضية
+              postImage = 'assets/images/default_job_1.png';
+              postTitle = 'شغلانة';
+            }
+          }
+        } catch (e) {
+          print('⚠️ خطأ في جلب بيانات المنشور: $e');
+          postImage = chatType == 'product'
+              ? 'assets/images/default_product.png'
+              : 'assets/images/default_job_1.png';
+          postTitle = chatType == 'product' ? 'منتج' : 'شغلانة';
+        }
+      }
+
+      // ⭐ استخدام Transaction للأمان
+      await _firestore.runTransaction((transaction) async {
+        final chatRef = _firestore.collection(collectionName).doc(chatId);
+        final chatDoc = await transaction.get(chatRef);
+
+        // جلب بيانات المستخدمين
+        final currentUserData = await _getUserData(currentUser.uid);
+        final receiverUserData = await _getUserData(receiverId);
+
+        // حفظ الرسالة
+        final chatMessage = ChatMessage(
+          id: messageRef.id,
+          senderId: currentUser.uid,
+          receiverId: receiverId,
+          message: message.trim(),
+          timestamp: DateTime.now(),
+          isRead: false,
+          postId: postId,
+          isAvailabilityQuestion: isAvailabilityQuestion,
+          isAvailabilityResponse: isAvailabilityResponse,
+          availabilityStatus: availabilityStatus,
+          mediaUrl: mediaUrl,
+          mediaType: mediaType,
+          fileName: fileName,
+          fileSize: fileSize,
+        );
+
+        transaction.set(messageRef, chatMessage.toFirestore());
+
+        // تحديث أو إنشاء غرفة المحادثة
+        if (!chatDoc.exists) {
+          // إنشاء محادثة جديدة
+          transaction.set(chatRef, {
+            'user1Id': currentUser.uid,
+            'user2Id': receiverId,
+            'user1Name': currentUserData['name'] ?? 'مستخدم',
+            'user2Name': receiverUserData['name'] ?? 'مستخدم',
+            'user1Image':
+                currentUserData['profileImage'] ??
+                'assets/images/default_profile.png',
+            'user2Image':
+                receiverUserData['profileImage'] ??
+                'assets/images/default_profile.png',
+            'unreadCounts': {currentUser.uid: 0, receiverId: 1},
+            'lastMessage': message.trim(),
+            'lastMessageTime': FieldValue.serverTimestamp(),
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+            'postId': postId,
+            'postImage': postImage,
+            'postTitle': postTitle,
+            'chatType': finalChatType,
+          });
+
+          print('✅ تم إنشاء محادثة جديدة في $collectionName: $chatId');
+          print('📌 postId: $postId');
+          print('🖼️ postImage: $postImage');
+          print('🏷️ postTitle: $postTitle');
+          print('📁 chatType: $finalChatType');
+        } else {
+          // تحديث المحادثة الموجودة
+          final existingData = chatDoc.data() as Map<String, dynamic>;
+          final existingPostId = existingData['postId'];
+
+          transaction.update(chatRef, {
+            'lastMessage': message.trim(),
+            'lastMessageTime': FieldValue.serverTimestamp(),
+            'unreadCounts.$receiverId': FieldValue.increment(1),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+
+          // ⭐ تحديث بيانات المنشور فقط إذا كان postId مختلفاً
+          if (postId != null && postId != existingPostId) {
+            transaction.update(chatRef, {
+              'postId': postId,
+              'postImage': postImage,
+              'postTitle': postTitle,
+              'chatType': finalChatType,
+            });
+            print('🔄 تم تحديث صورة المنشور للمحادثة الموجودة');
+          }
+
+          print('✅ تم تحديث المحادثة الموجودة في $collectionName: $chatId');
+        }
+      });
+
+      print('✅ تم إرسال الرسالة بنجاح');
+      print('👤 المرسل: ${currentUser.uid}');
+      print('👥 المستقبل: $receiverId');
+      print('📝 الرسالة: ${message.trim()}');
+      print('🆔 معرف المحادثة: $chatId');
+      print('📌 معرف المنشور: $postId');
+      print('🖼️ صورة المنشور: $postImage');
+      print('🏷️ عنوان المنشور: $postTitle');
+      print('🔗 رابط الوسائط: $mediaUrl');
+      print('📊 نوع الوسائط: $mediaType');
+      print('📁 نوع المحادثة: $finalChatType');
+      print('📁 Collection: $collectionName');
+    } catch (e) {
+      print('❌ فشل في إرسال الرسالة: $e');
+      throw Exception('فشل في إرسال الرسالة: $e');
+    }
+  }
+
+  // ⭐⭐ **مُعدّل: إرسال وسائط مع تحسينات جديدة**
+  Future<void> sendMediaMessage({
+    required String receiverId,
+    required File mediaFile,
+    String? message,
+    String? postId,
+    String? chatType = 'job',
+  }) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) throw Exception('يجب تسجيل الدخول أولاً');
+
+      print('📤 === بدء إرسال وسائط ===');
+      print('👤 المرسل: ${currentUser.uid}');
+      print('👥 المستقبل: $receiverId');
+      print('📁 الملف: ${mediaFile.path}');
+
+      final mediaService = MediaService();
+
+      print('🔗 جاري التحقق من اتصال Supabase...');
+      final isConnected = await mediaService.checkSupabaseConnection();
+      if (!isConnected) {
+        throw Exception('لا يمكن الاتصال بـ Supabase. تحقق من اتصال الإنترنت.');
+      }
+
+      print('🧪 جاري اختبار الرفع...');
+      final canUpload = await mediaService.testUploadToBucket();
+      if (!canUpload) {
+        throw Exception('''
+❌ لا يمكن رفع الملفات إلى Supabase Storage
+💡 تأكد من:
+1. وجود bucket باسم "posts_images" في Supabase Dashboard
+2. وجود مجلد "posts" داخل الـ bucket
+3. إعدادات RLS Policies تسمح بالرفع
+''');
+      }
+
+      print('🔼 جاري رفع الوسائط...');
+      final uploadResult = await mediaService.uploadMediaForChat(
+        mediaFile: mediaFile,
+      );
+
+      if (!uploadResult['success']) {
+        throw Exception('فشل في رفع الوسائط: ${uploadResult['error']}');
+      }
+
+      final String mediaUrl = uploadResult['url']!;
+      final String mediaType = uploadResult['fileType']!;
+      final String fileName = uploadResult['fileName']!;
+      final int fileSize = uploadResult['fileSize']!;
+
+      print('✅ تم رفع الملف بنجاح');
+      print('🔗 الرابط: $mediaUrl');
+      print('📊 النوع: $mediaType');
+      print('📁 الاسم: $fileName');
+      print('💾 الحجم: ${mediaService.formatFileSize(fileSize)}');
+
+      await sendMessage(
+        receiverId: receiverId,
+        message:
+            message ??
+            (mediaType == 'image'
+                ? '📸 صورة'
+                : mediaType == 'video'
+                ? '🎬 فيديو'
+                : '📎 ملف مرفق'),
+        postId: postId,
+        mediaUrl: mediaUrl,
+        mediaType: mediaType,
+        fileName: fileName,
+        fileSize: fileSize,
+        chatType: chatType,
+      );
+
+      print('✅ === تم إرسال الوسائط بنجاح ===');
+    } catch (e) {
+      print('❌ === فشل في إرسال الوسائط ===');
+      print('🚨 الخطأ: $e');
+      print('📋 StackTrace: ${e.toString()}');
+
+      throw Exception('فشل في إرسال الملف: ${e.toString()}');
+    }
+  }
+
+  // ⭐⭐ **جديد: إرسال صورة من المعرض**
+  Future<void> sendImageMessage({
+    required String receiverId,
+    String? message,
+    String? postId,
+    String? chatType = 'job',
+  }) async {
+    try {
+      final mediaService = MediaService();
+      final File? imageFile = await mediaService.pickImageFromGallery();
+
+      if (imageFile != null) {
+        await sendMediaMessage(
+          receiverId: receiverId,
+          mediaFile: imageFile,
+          message: message ?? '📸 صورة',
+          postId: postId,
+          chatType: chatType,
+        );
+      } else {
+        throw Exception('لم يتم اختيار صورة');
+      }
+    } catch (e) {
+      print('❌ فشل في إرسال الصورة: $e');
+      throw Exception('فشل في إرسال الصورة: ${e.toString()}');
+    }
+  }
+
+  // ⭐⭐ **جديد: إرسال فيديو**
+  Future<void> sendVideoMessage({
+    required String receiverId,
+    String? message,
+    String? postId,
+    String? chatType = 'job',
+  }) async {
+    try {
+      final mediaService = MediaService();
+      final File? videoFile = await mediaService.pickVideoFromGallery();
+
+      if (videoFile != null) {
+        await sendMediaMessage(
+          receiverId: receiverId,
+          mediaFile: videoFile,
+          message: message ?? '🎬 فيديو',
+          postId: postId,
+          chatType: chatType,
+        );
+      } else {
+        throw Exception('لم يتم اختيار فيديو');
+      }
+    } catch (e) {
+      print('❌ فشل في إرسال الفيديو: $e');
+      throw Exception('فشل في إرسال الفيديو: ${e.toString()}');
+    }
+  }
+
+  // ⭐⭐ **جديد: إرسال ملف**
+  Future<void> sendFileMessage({
+    required String receiverId,
+    String? message,
+    String? postId,
+    String? chatType = 'job',
+  }) async {
+    try {
+      final mediaService = MediaService();
+      final File? file = await mediaService.pickFileFromDevice();
+
+      if (file != null) {
+        await sendMediaMessage(
+          receiverId: receiverId,
+          mediaFile: file,
+          message: message ?? '📎 ملف مرفق',
+          postId: postId,
+          chatType: chatType,
+        );
+      } else {
+        throw Exception('لم يتم اختيار ملف');
+      }
+    } catch (e) {
+      print('❌ فشل في إرسال الملف: $e');
+      throw Exception('فشل في إرسال الملف: ${e.toString()}');
+    }
+  }
+
+  // ⭐⭐ **جديد: دالة اختبار نظام الوسائط بالكامل**
+  Future<void> testMediaSystem() async {
+    try {
+      print('🧪 === اختبار نظام الوسائط بالكامل ===');
+
+      final mediaService = MediaService();
+      await mediaService.testCompleteSystem();
+
+      print('🎉 === اختبار النظام ناجح ===');
+    } catch (e) {
+      print('❌ === اختبار النظام فشل ===');
+      print('🚨 الخطأ: $e');
+      throw Exception('فشل في اختبار النظام: $e');
+    }
+  }
+
+  // ⭐⭐ **جلب محادثات الشغلانات (جديد)**
+  Stream<List<ChatRoom>> getJobChatRooms() {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      print('❌ لا يوجد مستخدم مسجل دخول');
+      return const Stream.empty();
+    }
+
+    print('🔍 جاري تحميل محادثات الشغلانات للمستخدم: ${currentUser.uid}');
+
+    final Stream<List<ChatRoom>> user1Stream = _firestore
+        .collection('chats')
+        .where('user1Id', isEqualTo: currentUser.uid)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(ChatRoom.fromFirestore).toList());
+
+    final Stream<List<ChatRoom>> user2Stream = _firestore
+        .collection('chats')
+        .where('user2Id', isEqualTo: currentUser.uid)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(ChatRoom.fromFirestore).toList());
+
+    return Rx.combineLatest2<List<ChatRoom>, List<ChatRoom>, List<ChatRoom>>(
+      user1Stream,
+      user2Stream,
+      (List<ChatRoom> user1Chats, List<ChatRoom> user2Chats) {
+        final allChats = [...user1Chats, ...user2Chats];
+        allChats.sort((a, b) => b.lastMessageTime.compareTo(a.lastMessageTime));
+        print('✅ تم تحميل ${allChats.length} محادثة شغلانات');
+        return allChats;
+      },
+    );
+  }
+
+  // ⭐⭐ **جلب محادثات السوق (جديد)**
+  Stream<List<ChatRoom>> getMarketChatRooms() {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      print('❌ لا يوجد مستخدم مسجل دخول');
+      return const Stream.empty();
+    }
+
+    print('🔍 جاري تحميل محادثات السوق للمستخدم: ${currentUser.uid}');
+
+    final Stream<List<ChatRoom>> user1Stream = _firestore
+        .collection('market_chats')
+        .where('user1Id', isEqualTo: currentUser.uid)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(ChatRoom.fromFirestore).toList());
+
+    final Stream<List<ChatRoom>> user2Stream = _firestore
+        .collection('market_chats')
+        .where('user2Id', isEqualTo: currentUser.uid)
+        .snapshots()
+        .map((snapshot) => snapshot.docs.map(ChatRoom.fromFirestore).toList());
+
+    return Rx.combineLatest2<List<ChatRoom>, List<ChatRoom>, List<ChatRoom>>(
+      user1Stream,
+      user2Stream,
+      (List<ChatRoom> user1Chats, List<ChatRoom> user2Chats) {
+        final allChats = [...user1Chats, ...user2Chats];
+        allChats.sort((a, b) => b.lastMessageTime.compareTo(a.lastMessageTime));
+        print('✅ تم تحميل ${allChats.length} محادثة سوق');
+        return allChats;
+      },
+    );
+  }
+
+  // ⭐⭐ **جلب رسائل محادثة محددة (مُعدل مع Collection منفصلة)**
+  Stream<List<ChatMessage>> getChatMessages(
+    String otherUserId,
+    String? postId,
+    String? chatType,
+  ) {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      print('❌ لا يوجد مستخدم مسجل دخول');
+      return const Stream.empty();
+    }
+
+    final collectionName = _getChatCollection(chatType);
+    final chatId = generateChatId(currentUser.uid, otherUserId, postId);
+    print('🔍 جاري تحميل رسائل المحادثة من $collectionName: $chatId');
+
+    return _firestore
+        .collection(collectionName)
+        .doc(chatId)
+        .collection('messages')
+        .orderBy('timestamp', descending: true)
+        .limit(50)
+        .snapshots()
+        .map((snapshot) {
+          final messages = snapshot.docs
+              .map((doc) => ChatMessage.fromFirestore(doc))
+              .toList();
+          print('✅ تم تحميل ${messages.length} رسالة للمحادثة: $chatId');
+          return messages;
+        });
+  }
+
+  // ⭐ محسّن جداً: تعيين الرسائل كمقروءة بشكل متوازي (مُعدل مع Collection)
+  Future<void> markMessagesAsRead(
+    String otherUserId,
+    String? postId,
+    String? chatType,
+  ) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) return;
+
+      final collectionName = _getChatCollection(chatType);
+      final chatId = generateChatId(currentUser.uid, otherUserId, postId);
+
+      await Future.wait([
+        _updateMessagesReadStatus(collectionName, chatId, currentUser.uid),
+        _updateChatRoomReadStatus(collectionName, chatId, currentUser.uid),
+      ]);
+
+      print('✅ تم تعيين جميع الرسائل كمقروءة للمحادثة: $chatId');
+    } catch (e) {
+      print('❌ فشل في تعيين الرسائل كمقروءة: $e');
+    }
+  }
+
+  // ⭐ دالة مساعدة لتحديث حالة قراءة الرسائل
+  Future<void> _updateMessagesReadStatus(
+    String collectionName,
+    String chatId,
+    String userId,
+  ) async {
+    final messagesSnapshot = await _firestore
+        .collection(collectionName)
+        .doc(chatId)
+        .collection('messages')
+        .where('receiverId', isEqualTo: userId)
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    if (messagesSnapshot.docs.isEmpty) return;
+
+    final batch = _firestore.batch();
+    for (final doc in messagesSnapshot.docs) {
+      batch.update(doc.reference, {
+        'isRead': true,
+        'readAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    await batch.commit();
+    print('✅ تم تحديث ${messagesSnapshot.docs.length} رسالة كمقروءة');
+  }
+
+  // ⭐ دالة مساعدة لتحديث حالة قراءة غرفة المحادثة
+  Future<void> _updateChatRoomReadStatus(
+    String collectionName,
+    String chatId,
+    String userId,
+  ) async {
+    await _firestore.collection(collectionName).doc(chatId).update({
+      'unreadCounts.$userId': 0,
+      'lastReadBy_$userId': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    print('✅ تم تحديث unreadCount للمستخدم: $userId');
+  }
+
+  // ⭐ محسّن: تعيين محادثة كمقروءة (مُعدل مع Collection)
+  Future<void> markChatAsRead(
+    String otherUserId,
+    String? postId,
+    String? chatType,
+  ) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) return;
+
+      final collectionName = _getChatCollection(chatType);
+      final chatId = generateChatId(currentUser.uid, otherUserId, postId);
+
+      await _firestore.collection(collectionName).doc(chatId).update({
+        'unreadCounts.${currentUser.uid}': 0,
+        'lastReadBy_${currentUser.uid}': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      print('✅ تم تعيين المحادثة كمقروءة: $chatId');
+    } catch (e) {
+      print('❌ فشل في تعيين المحادثة كمقروءة: $e');
+    }
+  }
+
+  // ⭐ محسّن: دالة تعديل الرسالة
+  Future<void> updateMessage(
+    String chatId,
+    String messageId,
+    String newMessage,
+  ) async {
+    try {
+      if (newMessage.trim().isEmpty) {
+        throw Exception('الرسالة لا يمكن أن تكون فارغة');
+      }
+
+      await _firestore
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .doc(messageId)
+          .update({
+            'message': newMessage.trim(),
+            'isEdited': true,
+            'editedAt': FieldValue.serverTimestamp(),
+          });
+
+      print('✅ تم تعديل الرسالة: $messageId');
+    } catch (e) {
+      print('❌ فشل في تعديل الرسالة: $e');
+      throw Exception('فشل في تعديل الرسالة: $e');
+    }
+  }
+
+  // ⭐ محسّن: دالة حذف الرسالة
+  Future<void> deleteMessage(String chatId, String messageId) async {
+    try {
+      await _firestore
+          .collection('chats')
+          .doc(chatId)
+          .collection('messages')
+          .doc(messageId)
+          .delete();
+
+      print('✅ تم حذف الرسالة: $messageId');
+    } catch (e) {
+      print('❌ فشل في حذف الرسالة: $e');
+      throw Exception('فشل في حذف الرسالة: $e');
+    }
+  }
+
+  // ⭐ محسّن: حذف محادثة
+  Future<void> deleteChat(
+    String otherUserId,
+    String? postId,
+    String? chatType,
+  ) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) return;
+
+      final collectionName = _getChatCollection(chatType);
+      final chatId = generateChatId(currentUser.uid, otherUserId, postId);
+
+      final messagesSnapshot = await _firestore
+          .collection(collectionName)
+          .doc(chatId)
+          .collection('messages')
+          .get();
+
+      if (messagesSnapshot.docs.isNotEmpty) {
+        final batch = _firestore.batch();
+        for (final doc in messagesSnapshot.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+      }
+
+      await _firestore.collection(collectionName).doc(chatId).delete();
+
+      print('✅ تم حذف المحادثة بنجاح: $chatId');
+    } catch (e) {
+      print('❌ فشل في حذف المحادثة: $e');
+      throw Exception('فشل في حذف المحادثة: $e');
+    }
+  }
+
+  // ⭐ محسّن: دالة لجلب بيانات المستخدم
+  Future<Map<String, dynamic>> _getUserData(String userId) async {
+    try {
+      print('🔍 جاري جلب بيانات المستخدم: $userId');
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+
+      if (userDoc.exists) {
+        final data = userDoc.data() ?? {};
+        print('✅ تم جلب بيانات المستخدم: ${data['name'] ?? 'غير معروف'}');
+        return data;
+      } else {
+        print('⚠️ المستخدم غير موجود في قاعدة البيانات: $userId');
+        return {
+          'name': 'مستخدم',
+          'profileImage': 'assets/images/default_profile.png',
+        };
+      }
+    } catch (e) {
+      print('❌ فشل في جلب بيانات المستخدم: $e');
+      return {
+        'name': 'مستخدم',
+        'profileImage': 'assets/images/default_profile.png',
+      };
+    }
+  }
+
+  // ⭐ جديد: دالة للتحقق من وجود محادثة
+  Future<bool> doesChatExist(
+    String user1Id,
+    String user2Id, [
+    String? postId,
+    String? chatType,
+  ]) async {
+    final collectionName = _getChatCollection(chatType);
+    final chatId = generateChatId(user1Id, user2Id, postId);
+    final doc = await _firestore.collection(collectionName).doc(chatId).get();
+    return doc.exists;
+  }
+
+  // ⭐ جديد: دالة لتحديث حالة الاتصال
+  Future<void> updateUserOnlineStatus(bool isOnline) async {
+    try {
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) return;
+
+      await _firestore.collection('users').doc(currentUser.uid).set({
+        'isOnline': isOnline,
+        'lastSeen': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      print('✅ تم تحديث حالة الاتصال: ${isOnline ? 'متصل' : 'غير متصل'}');
+    } catch (e) {
+      print('❌ خطأ في تحديث حالة الاتصال: $e');
+    }
+  }
+
+  // ⭐ جديد: دالة للحصول على آخر رسالة في المحادثة
+  Stream<DocumentSnapshot?> getLastMessageStream(
+    String chatId,
+    String? chatType,
+  ) {
+    final collectionName = _getChatCollection(chatType);
+    return _firestore
+        .collection(collectionName)
+        .doc(chatId)
+        .collection('messages')
+        .orderBy('timestamp', descending: true)
+        .limit(1)
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs.isNotEmpty ? snapshot.docs.first : null,
+        );
+  }
+
+  // ⭐ جديد: دالة للحصول على معلومات المستخدم
+  Future<Map<String, dynamic>> getUserData(String userId) async {
+    try {
+      final userDoc = await _firestore.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        return userDoc.data() ?? {};
+      }
+      return {};
+    } catch (e) {
+      print('❌ خطأ في جلب بيانات المستخدم: $e');
+      return {};
+    }
+  }
+
+  // ⭐ جديد: دالة تصحيح المحادثة
+  Future<void> debugChatRoom(String chatId, String? chatType) async {
+    try {
+      final collectionName = _getChatCollection(chatType);
+      print('🐛 === تصحيح غرفة المحادثة في $collectionName ===');
+
+      final chatDoc = await _firestore
+          .collection(collectionName)
+          .doc(chatId)
+          .get();
+      print('🔄 حالة الغرفة: ${chatDoc.exists ? 'موجودة' : 'غير موجودة'}');
+
+      if (chatDoc.exists) {
+        final data = chatDoc.data();
+        print('📊 بيانات الغرفة:');
+        print('   👤 user1: ${data?['user1Name']} (${data?['user1Id']})');
+        print('   👤 user2: ${data?['user2Name']} (${data?['user2Id']})');
+        print('   💬 آخر رسالة: ${data?['lastMessage']}');
+        print('   🔢 unreadCounts: ${data?['unreadCounts']}');
+        print('   📌 postId: ${data?['postId']}');
+        print('   🖼️ postImage: ${data?['postImage']}');
+        print('   🏷️ postTitle: ${data?['postTitle']}');
+        print('   📁 chatType: ${data?['chatType']}');
+      } else {
+        print('❌ غرفة المحادثة غير موجودة في قاعدة البيانات');
+      }
+
+      final messagesSnapshot = await _firestore
+          .collection(collectionName)
+          .doc(chatId)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(5)
+          .get();
+
+      print('💬 عدد الرسائل: ${messagesSnapshot.docs.length}');
+
+      for (var doc in messagesSnapshot.docs) {
+        final messageData = doc.data();
+        print('   📨 ${messageData['senderId']}: ${messageData['message']}');
+      }
+
+      print('🐛 === انتهاء التصحيح ===');
+    } catch (e) {
+      print('❌ فشل في تصحيح المحادثة: $e');
+    }
+  }
+
+  // ⭐ محسّن: دالة لتفعيل Offline Support
+  Future<void> enableOfflinePersistence() async {
+    try {
+      _firestore.settings = const Settings(
+        persistenceEnabled: true,
+        cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+      );
+      print('✅ تم تفعيل Offline Persistence');
+    } catch (e) {
+      print(
+        '⚠️ ملاحظة: Offline Persistence مفعل تلقائياً في الإصدارات الحديثة',
+      );
+    }
+  }
+
+  // ⭐ جديد: دالة لتحميل صورة المنشور
+  Future<String?> getPostImage(String postId) async {
+    try {
+      if (postId.isEmpty) return null;
+
+      final postDoc = await _firestore.collection('posts').doc(postId).get();
+      if (postDoc.exists) {
+        final postData = postDoc.data();
+        final images = postData?['images'] ?? [];
+        if (images is List && images.isNotEmpty) {
+          final firstImage = images[0];
+          if (firstImage is String && firstImage.isNotEmpty) {
+            return firstImage;
+          }
+        }
+
+        return postData?['imageUrl'] ??
+            postData?['image'] ??
+            postData?['postImage'];
+      }
+      return null;
+    } catch (e) {
+      print('❌ خطأ في جلب صورة المنشور: $e');
+      return null;
+    }
+  }
+
+  // ⭐ قديم: جلب جميع المحادثات (للتوافق مع الكود القديم)
+  Stream<List<ChatRoom>> getChatRooms() {
+    return getJobChatRooms(); // للت
+  }
+}

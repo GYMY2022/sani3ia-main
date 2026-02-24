@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "742928978479",
+    "project_id": "sani3ia-app",
+    "storage_bucket": "sani3ia-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:742928978479:android:ae0f8824a5b3fc905f6cda",
+        "android_client_info": {
+          "package_name": "com.example.sani3ia_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDinwJW-nruj1jb0IacrxX2U6NuGiLGoek"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

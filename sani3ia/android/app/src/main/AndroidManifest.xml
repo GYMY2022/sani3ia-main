@@ -1,0 +1,131 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.example.sani3ia_app">
+    
+    <!-- ⭐⭐ صلاحيات الموقع -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <!-- ⚠️ تعليق هذا إذا لم تكن بحاجة إليه حالياً -->
+    <!-- <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/> -->
+    
+    <!-- ⭐⭐ صلاحيات الإنترنت -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    
+    <!-- ⭐⭐ صلاحيات إضافية لمنع مشاكل ImageReader -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"/>
+    
+    <!-- ⭐⭐ إضافة هذا لمنع مشاكل الإذن على Android 13+ -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+    
+    <application
+        android:label="sani3ia"
+        android:name="${applicationName}"
+        android:usesCleartextTraffic="true"
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true"
+        android:hardwareAccelerated="true"
+        android:largeHeap="true">
+        
+        <!-- ⭐⭐ مفتاح خرائط جوجل -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyDinwJW-nruj1jb0IacrxX2U6NuGiLGoek"/>
+            
+        <!-- ⭐⭐ إضافة هذا لمنع مشاكل Google Play Services -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version"/>
+        
+        <!-- ⭐⭐ إضافة هذا للتأكد من دعم Firebase -->
+        <meta-data
+            android:name="firebase_performance_logcat_enabled"
+            android:value="true"/>
+            
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/LaunchTheme"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize"
+            android:screenOrientation="portrait">
+            
+            <!-- ⭐⭐ إضافة هذا لمنع مشاكل العرض -->
+            <meta-data
+                android:name="android.max_aspect"
+                android:value="2.1"/>
+                
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/NormalTheme"/>
+                
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+            
+            <!-- ⭐⭐ إضافة هذا intent-filter لمعالجة الروابط العميقة -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https" android:host="sani3ia.com"/>
+            </intent-filter>
+        </activity>
+        
+        <!-- ⭐⭐ تعليق هذه الأسطر لأنها تسبب مشكلة - الموارد غير موجودة -->
+        <!--
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_notification"/>
+            
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color"/>
+        -->
+        
+        <meta-data
+            android:name="flutterEmbedding"
+            android:value="2"/>
+            
+        <!-- ⭐⭐ إضافة service للإشعارات إذا كنت تستخدم Firebase Messaging -->
+        <!--
+        <service
+            android:name=".java.MyFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
+            </intent-filter>
+        </service>
+        -->
+    </application>
+    
+    <queries>
+        <!-- ⭐⭐ استعلامات للروابط العميقة -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        
+        <!-- ⭐⭐ استعلامات لمشاركة المحتوى -->
+        <intent>
+            <action android:name="android.intent.action.SEND"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        
+        <!-- ⭐⭐ استعلامات لمعالجة النص -->
+        <intent>
+            <action android:name="android.intent.action.PROCESS_TEXT"/>
+            <data android:mimeType="text/plain"/>
+        </intent>
+        
+        <!-- ⭐⭐ استعلامات لخرائط جوجل -->
+        <package android:name="com.google.android.apps.maps"/>
+    </queries>
+</manifest>

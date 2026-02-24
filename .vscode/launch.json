@@ -1,0 +1,28 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "sani3ia",
+            "cwd": "sani3ia",
+            "request": "launch",
+            "type": "dart"
+        },
+        {
+            "name": "sani3ia (profile mode)",
+            "cwd": "sani3ia",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "profile"
+        },
+        {
+            "name": "sani3ia (release mode)",
+            "cwd": "sani3ia",
+            "request": "launch",
+            "type": "dart",
+            "flutterMode": "release"
+        }
+    ]
+}
