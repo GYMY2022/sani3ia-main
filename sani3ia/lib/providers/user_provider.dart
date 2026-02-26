@@ -18,13 +18,11 @@ class UserProvider with ChangeNotifier {
   String get error => _error;
   bool get isInitialized => _isInitialized;
 
-  // الحقول المعروضة بشكل آمن
   String get displayName => _user?.name ?? 'مستخدم';
   String get displayEmail => _user?.email ?? 'البريد الإلكتروني';
   String get displayPhone => _user?.phone ?? 'رقم الهاتف';
   String get displayProfession => _user?.profession ?? 'المهنة';
 
-  // دوال التحقق من اكتمال الملف الشخصي
   List<String> get missingProfileFields {
     final missing = <String>[];
 
@@ -46,16 +44,10 @@ class UserProvider with ChangeNotifier {
   bool get isProfileComplete {
     if (_user == null) return false;
 
-    // التحقق من الحقول الأساسية المطلوبة
     final hasPhone = _user!.phone != null && _user!.phone!.isNotEmpty;
     final hasProfession =
         _user!.profession != null && _user!.profession!.isNotEmpty;
     final hasGender = _user!.gender != null && _user!.gender!.isNotEmpty;
-
-    print('🔍 التحقق من اكتمال الملف الشخصي:');
-    print('   - الهاتف: $hasPhone (${_user!.phone})');
-    print('   - المهنة: $hasProfession (${_user!.profession})');
-    print('   - النوع: $hasGender (${_user!.gender})');
 
     return hasPhone && hasProfession && hasGender;
   }
@@ -63,7 +55,7 @@ class UserProvider with ChangeNotifier {
   double get profileCompletionPercentage {
     if (_user == null) return 0.0;
 
-    int totalFields = 3; // phone, profession, gender
+    int totalFields = 3;
     int completedFields = 0;
 
     if (_user!.phone != null && _user!.phone!.isNotEmpty) completedFields++;
@@ -74,7 +66,6 @@ class UserProvider with ChangeNotifier {
     return completedFields / totalFields;
   }
 
-  // دالة initialize
   Future<void> initialize() async {
     if (_isInitialized) {
       print('✅ UserProvider already initialized');
@@ -101,13 +92,11 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  // تعيين المستخدم
   void setUser(UserModel user) {
     _user = user;
     notifyListeners();
   }
 
-  // ⭐⭐ تحميل بيانات المستخدم من Firestore - محسنة
   Future<void> loadUserData() async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
@@ -130,11 +119,6 @@ class UserProvider with ChangeNotifier {
         final data = doc.data()!;
         _user = UserModel.fromMap(data);
         print('✅ تم تحميل بيانات المستخدم: ${_user?.name}');
-        print('📋 تفاصيل البيانات المحملة:');
-        print('   - الهاتف: ${_user?.phone}');
-        print('   - المهنة: ${_user?.profession}');
-        print('   - النوع: ${_user?.gender}');
-        print('   - تاريخ الميلاد: ${_user?.birthDate}');
       } else {
         print('⚠️ لا توجد بيانات للمستخدم في Firestore');
         _user = UserModel(
@@ -156,7 +140,6 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  // حفظ المستخدم في Firestore مع دمج البيانات
   Future<bool> saveUserToFirestore(UserModel user) async {
     _isLoading = true;
     _error = '';
@@ -181,7 +164,6 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  // تحديث بيانات المستخدم
   Future<bool> updateUserInFirestore(Map<String, dynamic> updates) async {
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
@@ -196,7 +178,6 @@ class UserProvider with ChangeNotifier {
     try {
       await _firestore.collection('users').doc(currentUser.uid).update(updates);
 
-      // تحديث البيانات المحلية
       if (_user != null) {
         _user = _user!.copyWith(
           name: updates['name'] ?? _user!.name,
@@ -206,6 +187,8 @@ class UserProvider with ChangeNotifier {
           gender: updates['gender'] ?? _user!.gender,
           location: updates['location'] ?? _user!.location,
           profileImage: updates['profileImage'] ?? _user!.profileImage,
+          onesignalPlayerId:
+              updates['onesignalPlayerId'] ?? _user!.onesignalPlayerId,
           updatedAt: DateTime.now(),
         );
       }
@@ -222,7 +205,24 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  // تسجيل الخروج
+  Future<void> updateOneSignalPlayerId(String playerId) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+
+    try {
+      await _firestore.collection('users').doc(currentUser.uid).update({
+        'onesignalPlayerId': playerId,
+        'lastPlayerIdUpdate': FieldValue.serverTimestamp(),
+      });
+      if (_user != null) {
+        _user = _user!.copyWith(onesignalPlayerId: playerId);
+      }
+      print('✅ تم حفظ OneSignal PlayerId: $playerId');
+    } catch (e) {
+      print('❌ فشل حفظ OneSignal PlayerId: $e');
+    }
+  }
+
   Future<void> logout() async {
     _isLoading = true;
     notifyListeners();
@@ -241,7 +241,6 @@ class UserProvider with ChangeNotifier {
     }
   }
 
-  // مسح الأخطاء
   void clearError() {
     _error = '';
     notifyListeners();

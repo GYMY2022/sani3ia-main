@@ -9,6 +9,7 @@ import '../providers/user_provider.dart';
 import 'location_picker_screen.dart';
 import '../models/location_model.dart';
 import '../services/location_service.dart';
+import '../services/notification_helper.dart'; // ⭐ إضافة
 
 class AddProductToMarket extends StatefulWidget {
   const AddProductToMarket({super.key});
@@ -33,9 +34,8 @@ class _AddProductToMarketState extends State<AddProductToMarket> {
   UserLocation? _productLocation;
   bool _isLocationLoading = false;
 
-  // ⭐ إضافة "عام" إلى قائمة التصنيفات
   final List<String> _categories = [
-    'عام', // إضافة هذا الخيار
+    'عام',
     'أجهزة إلكترونية',
     'أثاث منزل',
     'ملابس',
@@ -148,6 +148,13 @@ class _AddProductToMarketState extends State<AddProductToMarket> {
     });
   }
 
+  // دالة مساعدة لجلب المستخدمين المهتمين بهذا التصنيف (يمكن تطويرها لاحقاً)
+  Future<List<String>> _getInterestedUsers(String category) async {
+    // مثال بسيط: نرجع قائمة فارغة حالياً
+    // يمكنك لاحقاً إضافة منطق حقيقي (مثلاً جلب المستخدمين الذين تابعوا هذا التصنيف)
+    return [];
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedImages.isEmpty) {
@@ -216,6 +223,15 @@ class _AddProductToMarketState extends State<AddProductToMarket> {
         listen: false,
       );
       await productProvider.addProduct(product, imageFiles: _selectedImages);
+
+      // ⭐ إرسال إشعار للمستخدمين المهتمين بهذا التصنيف
+      final interestedUsers = await _getInterestedUsers(product.category);
+      if (interestedUsers.isNotEmpty) {
+        NotificationHelper.sendNewProductAddedNotification(
+          product: product,
+          interestedUserIds: interestedUsers,
+        );
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

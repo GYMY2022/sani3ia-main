@@ -7,6 +7,7 @@ import '../models/product_model.dart';
 import '../providers/product_provider.dart';
 import 'single_chat_screen.dart';
 import 'edit_product.dart';
+import '../services/notification_helper.dart'; // ⭐ إضافة
 
 class ProductDetailsScreen extends StatefulWidget {
   final Product product;

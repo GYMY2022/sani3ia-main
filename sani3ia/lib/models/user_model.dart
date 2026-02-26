@@ -21,8 +21,11 @@ class UserModel {
   final double? longitude;
   final String? fullAddress;
 
-  // ⭐⭐ حقل جديد للنبذة
+  // حقل النبذة
   final String? bio;
+
+  // ⭐ حقل OneSignal Player ID
+  final String? onesignalPlayerId;
 
   const UserModel({
     this.id,
@@ -41,7 +44,8 @@ class UserModel {
     this.latitude,
     this.longitude,
     this.fullAddress,
-    this.bio, // ⭐⭐ إضافة حقل bio
+    this.bio,
+    this.onesignalPlayerId, // ⭐ جديد
   });
 
   // إنشاء مستخدم فارغ
@@ -62,6 +66,7 @@ class UserModel {
       longitude: null,
       fullAddress: null,
       bio: null,
+      onesignalPlayerId: null,
     );
   }
 
@@ -113,7 +118,8 @@ class UserModel {
       latitude: locationData?['latitude'] ?? map['latitude'],
       longitude: locationData?['longitude'] ?? map['longitude'],
       fullAddress: locationData?['fullAddress'] ?? map['fullAddress'],
-      bio: map['bio'], // ⭐⭐ إضافة bio
+      bio: map['bio'],
+      onesignalPlayerId: map['onesignalPlayerId'], // ⭐ جديد
     );
   }
 
@@ -147,7 +153,8 @@ class UserModel {
       'createdAt': createdAt != null ? Timestamp.fromDate(createdAt!) : null,
       'updatedAt': Timestamp.fromDate(DateTime.now()),
       'isEmailVerified': isEmailVerified,
-      'bio': bio, // ⭐⭐ إضافة bio
+      'bio': bio,
+      'onesignalPlayerId': onesignalPlayerId, // ⭐ جديد
     };
   }
 
@@ -169,7 +176,8 @@ class UserModel {
     double? latitude,
     double? longitude,
     String? fullAddress,
-    String? bio, // ⭐⭐ إضافة bio
+    String? bio,
+    String? onesignalPlayerId, // ⭐ جديد
   }) {
     return UserModel(
       id: id ?? this.id,
@@ -188,7 +196,8 @@ class UserModel {
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       fullAddress: fullAddress ?? this.fullAddress,
-      bio: bio ?? this.bio, // ⭐⭐ إضافة bio
+      bio: bio ?? this.bio,
+      onesignalPlayerId: onesignalPlayerId ?? this.onesignalPlayerId,
     );
   }
 

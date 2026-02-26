@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:snae3ya/models/application_model.dart';
 import 'package:snae3ya/services/application_service.dart';
 import 'package:snae3ya/services/chat_service.dart';
+import 'package:snae3ya/services/notification_helper.dart'; // ⭐ إضافة
 
 class ApplicationProvider with ChangeNotifier {
   final ApplicationService _applicationService;
@@ -255,7 +256,7 @@ class ApplicationProvider with ChangeNotifier {
     }
   }
 
-  // تحديث حالة طلب التقدم
+  // تحديث حالة طلب التقدم (مع إشعار قبول/رفض)
   Future<void> updateApplicationStatus({
     required String applicationId,
     required ApplicationStatus newStatus,
@@ -267,6 +268,29 @@ class ApplicationProvider with ChangeNotifier {
         applicationId: applicationId,
         newStatus: newStatus,
       );
+
+      // ⭐ إرسال إشعار للمتقدم بقبول/رفض الطلب
+      final application = getApplicationById(applicationId);
+      if (application != null) {
+        final currentUser = _auth.currentUser;
+        if (currentUser != null) {
+          if (newStatus == ApplicationStatus.accepted) {
+            NotificationHelper.sendJobApplicationAcceptedNotification(
+              applicantId: application.applicantId,
+              postOwnerName: currentUser.displayName ?? 'صاحب الشغلانة',
+              postTitle: application.postTitle,
+              postId: application.postId,
+            );
+          } else if (newStatus == ApplicationStatus.rejected) {
+            NotificationHelper.sendJobApplicationRejectedNotification(
+              applicantId: application.applicantId,
+              postOwnerName: currentUser.displayName ?? 'صاحب الشغلانة',
+              postTitle: application.postTitle,
+              postId: application.postId,
+            );
+          }
+        }
+      }
 
       // تحديث البيانات المحلية
       _updateLocalApplicationStatus(applicationId, newStatus);

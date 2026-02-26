@@ -8,6 +8,7 @@ import 'package:snae3ya/providers/post_provider.dart';
 import 'package:snae3ya/providers/user_provider.dart';
 import 'package:snae3ya/services/location_service.dart';
 import 'package:snae3ya/services/image_upload_service.dart';
+import 'package:snae3ya/services/notification_helper.dart'; // ⭐ إضافة
 
 class AddJobScreen extends StatefulWidget {
   const AddJobScreen({super.key});
@@ -385,6 +386,9 @@ class _AddJobScreenState extends State<AddJobScreen> {
       // إضافة البوست
       final postProvider = Provider.of<PostProvider>(context, listen: false);
       await postProvider.addPost(newPost);
+
+      // ⭐ إرسال إشعار للصنايعية في نفس التخصص
+      NotificationHelper.sendNewJobPostedNotification(post: newPost);
 
       // إظهار رسالة النجاح
       if (imageUrls.isNotEmpty && !imageUrls[0].startsWith('assets/')) {

@@ -15,6 +15,7 @@ import 'package:snae3ya/screens/location_picker_screen.dart';
 import 'package:snae3ya/models/location_model.dart';
 import 'package:snae3ya/screens/complete_profile_screen.dart';
 import 'package:snae3ya/services/location_service.dart';
+import 'package:onesignal_flutter/onesignal_flutter.dart'; // ⭐ إضافة OneSignal
 
 // ✅ قائمة المهن المتاحة
 final List<String> professions = [
@@ -331,6 +332,36 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
+  // ⭐ دالة محسنة لحفظ OneSignal PlayerId مع إعادة المحاولة
+  Future<void> _saveOneSignalPlayerId(String userId) async {
+    // محاولة جلب playerId بعد تأخير قصير لأن OneSignal قد لا يكون جاهزاً فوراً
+    for (int i = 0; i < 3; i++) {
+      try {
+        final playerId = await OneSignal.User.getOnesignalId();
+        if (playerId != null && playerId.isNotEmpty) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(userId)
+              .update({
+                'onesignalPlayerId': playerId,
+                'lastPlayerIdUpdate': FieldValue.serverTimestamp(),
+              });
+          print('✅ OneSignal PlayerId محفوظ: $playerId');
+          return;
+        } else {
+          print(
+            '⏳ OneSignal PlayerId غير متوفر بعد، إعادة المحاولة ${i + 1}/3',
+          );
+          await Future.delayed(const Duration(seconds: 1));
+        }
+      } catch (e) {
+        print('⚠️ خطأ في حفظ OneSignal PlayerId: $e');
+        await Future.delayed(const Duration(seconds: 1));
+      }
+    }
+    print('⚠️ لم نتمكن من الحصول على OneSignal PlayerId بعد 3 محاولات');
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -367,6 +398,9 @@ class _AuthScreenState extends State<AuthScreen> {
             firebaseUserId: credential.user!.uid,
             userLocation: _userLocation,
           );
+
+          // ⭐ حفظ OneSignal PlayerId للمستخدم الجديد
+          await _saveOneSignalPlayerId(credential.user!.uid);
 
           if (!mounted) return;
 
@@ -442,6 +476,9 @@ class _AuthScreenState extends State<AuthScreen> {
 
               // تأكد من تحميل البيانات بالكامل
               await userProvider.loadUserData();
+
+              // ⭐ حفظ OneSignal PlayerId بعد تحميل البيانات
+              await _saveOneSignalPlayerId(user.uid);
 
               // انتظر لحظة للتأكد من اكتمال التحميل
               await Future.delayed(const Duration(milliseconds: 500));
@@ -535,6 +572,9 @@ class _AuthScreenState extends State<AuthScreen> {
                   listen: false,
                 );
                 await userProvider.loadUserData();
+
+                // ⭐ حفظ OneSignal PlayerId
+                await _saveOneSignalPlayerId(user.uid);
 
                 // ⭐⭐ التحقق من اكتمال البيانات بشكل مباشر
                 final bool hasPhone =
@@ -788,6 +828,9 @@ class _AuthScreenState extends State<AuthScreen> {
           // بعد إنشاء الحساب الجديد، نحتاج إلى تحميل بيانات المستخدم
           await userProvider.loadUserData();
 
+          // ⭐ حفظ OneSignal PlayerId للمستخدم الجديد
+          await _saveOneSignalPlayerId(user.uid);
+
           // المستخدم جديد بالتأكيد يحتاج لإكمال الملف الشخصي
           if (mounted) {
             print('🔄 توجيه مستخدم جديد لإكمال الملف الشخصي...');
@@ -811,6 +854,9 @@ class _AuthScreenState extends State<AuthScreen> {
             listen: false,
           );
           await userProvider.loadUserData();
+
+          // ⭐ حفظ OneSignal PlayerId للمستخدم الحالي
+          await _saveOneSignalPlayerId(user.uid);
 
           // انتظر لحظة للتأكد من اكتمال التحميل
           await Future.delayed(const Duration(milliseconds: 500));

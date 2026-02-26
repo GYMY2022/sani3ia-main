@@ -4,6 +4,8 @@ import 'package:rxdart/rxdart.dart';
 import 'package:snae3ya/models/chat_model.dart';
 import 'package:snae3ya/services/media_service.dart';
 import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ChatService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -13,12 +15,126 @@ class ChatService {
   factory ChatService() => _instance;
   ChatService._internal();
 
-  // ⭐⭐ دالة لتحديد Collection المناسبة (جديدة)
+  // ⭐ OneSignal constants
+  static const String _oneSignalAppId = "06a56c7a-1579-4cf0-997d-11982bfb1c35";
+  // ⭐ ضع REST API Key الخاص بك هنا (من لوحة تحكم OneSignal)
+  static const String _oneSignalRestApiKey =
+      "YOUR_REST_API_KEY"; // استبدلها بالمفتاح الحقيقي
+
+  // ⭐ دالة مساعدة لجلب playerId لمستخدم
+  Future<String?> _getUserPlayerId(String userId) async {
+    try {
+      final doc = await _firestore.collection('users').doc(userId).get();
+      return doc.data()?['onesignalPlayerId'];
+    } catch (e) {
+      print('❌ خطأ في جلب playerId: $e');
+      return null;
+    }
+  }
+
+  // ⭐ دالة لإرسال إشعار عبر OneSignal
+  Future<void> _sendOneSignalNotification({
+    required String playerId,
+    required String title,
+    required String body,
+    required Map<String, dynamic> data,
+  }) async {
+    final url = Uri.parse('https://onesignal.com/api/v1/notifications');
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'Basic $_oneSignalRestApiKey',
+    };
+    final payload = {
+      'app_id': _oneSignalAppId,
+      'include_player_ids': [playerId],
+      'headings': {'en': title},
+      'contents': {'en': body},
+      'data': data,
+      'android_channel_id':
+          'high_importance_channel', // ⭐ مهم للصوت على أندرويد
+      'sound': 'default', // ⭐ صوت افتراضي
+    };
+
+    try {
+      final response = await http.post(
+        url,
+        headers: headers,
+        body: jsonEncode(payload),
+      );
+      print('📤 OneSignal response status: ${response.statusCode}');
+      print('📤 OneSignal response body: ${response.body}');
+      if (response.statusCode == 200) {
+        print('✅ تم إرسال إشعار OneSignal');
+      } else {
+        print('❌ فشل إرسال إشعار OneSignal: ${response.body}');
+      }
+    } catch (e) {
+      print('❌ خطأ في إرسال إشعار OneSignal: $e');
+    }
+  }
+
+  // ⭐ دالة لإرسال إشعار عند رسالة جديدة وتخزينه في Firestore
+  Future<void> sendNewMessageNotification({
+    required String receiverId,
+    required String senderName,
+    required String messagePreview,
+    required String? postId,
+    required String? chatType,
+    required String? senderId,
+  }) async {
+    final playerId = await _getUserPlayerId(receiverId);
+    if (playerId == null) {
+      print('⚠️ لا يوجد playerId للمستقبل');
+    } else {
+      await _sendOneSignalNotification(
+        playerId: playerId,
+        title: 'رسالة جديدة',
+        body: '$senderName: $messagePreview',
+        data: {
+          'screen': 'single-chat',
+          'receiverId': senderId,
+          'userName': senderName,
+          'postId': postId,
+          'chatType': chatType ?? 'job',
+        },
+      );
+    }
+
+    // ⭐ تخزين الإشعار في Firestore (لشاشة الإشعارات الداخلية)
+    try {
+      final notificationRef = _firestore.collection('notifications').doc();
+      final notificationData = {
+        'userId': receiverId,
+        'senderId': senderId,
+        'senderName': senderName,
+        'type':
+            11, // NotificationType.newMessage (حسب تعريفك في NotificationModel)
+        'title': 'رسالة جديدة',
+        'body': '$senderName: $messagePreview',
+        'data': {'postId': postId, 'chatType': chatType, 'senderId': senderId},
+        'isRead': false,
+        'createdAt': FieldValue.serverTimestamp(),
+        'targetRoute': 'single-chat',
+        'targetArguments': {
+          'receiverId': senderId,
+          'userName': senderName,
+          'postId': postId,
+          'chatType': chatType,
+        },
+      };
+      await notificationRef.set(notificationData);
+      print('✅ تم تخزين الإشعار في Firestore');
+    } catch (e) {
+      print('❌ فشل تخزين الإشعار في Firestore: $e');
+    }
+  }
+
+  // باقي دوال ChatService (كما هي في ملفك السابق، بدون تغيير)
+  // ⭐ دالة لتحديد Collection المناسبة
   String _getChatCollection(String? chatType) {
     return chatType == 'product' ? 'market_chats' : 'chats';
   }
 
-  // ⭐⭐ دالة معدلة لتوليد ID المحادثة باستخدام postId
   String generateChatId(String user1Id, String user2Id, [String? postId]) {
     final sortedIds = [user1Id, user2Id]..sort();
     if (postId != null && postId.isNotEmpty) {
@@ -28,7 +144,6 @@ class ChatService {
     }
   }
 
-  // ⭐⭐ **مُعدّل: إرسال رسالة جديدة مع Collection منفصلة (مع الحفاظ على كل الميزات)**
   Future<void> sendMessage({
     required String receiverId,
     required String message,
@@ -46,7 +161,6 @@ class ChatService {
       final currentUser = _auth.currentUser;
       if (currentUser == null) throw Exception('يجب تسجيل الدخول أولاً');
 
-      // التحقق من صحة البيانات
       if (message.trim().isEmpty && mediaUrl == null) {
         throw Exception('الرسالة لا يمكن أن تكون فارغة');
       }
@@ -59,10 +173,7 @@ class ChatService {
         throw Exception('لا يمكن أن تكون الرسالة سؤال ورد في نفس الوقت');
       }
 
-      // ⭐⭐ تحديد Collection المناسبة (جديد)
       final collectionName = _getChatCollection(chatType);
-
-      // ⭐⭐ استخدام postId في توليد chatId
       final chatId = generateChatId(currentUser.uid, receiverId, postId);
       final messageRef = _firestore
           .collection(collectionName)
@@ -70,7 +181,6 @@ class ChatService {
           .collection('messages')
           .doc();
 
-      // ⭐ جلب صورة وعنوان المنشور إذا كان هناك postId
       String? postImage;
       String? postTitle;
       String? finalChatType = chatType;
@@ -80,7 +190,6 @@ class ChatService {
           print('🔍 جاري جلب بيانات المنشور: $postId');
 
           if (chatType == 'product') {
-            // جلب من products
             final productDoc = await _firestore
                 .collection('products')
                 .doc(postId)
@@ -106,7 +215,6 @@ class ChatService {
               print('📝 عنوان المنتج: $postTitle');
             }
           } else {
-            // جلب من posts (الشغلانات)
             final postDoc = await _firestore
                 .collection('posts')
                 .doc(postId)
@@ -124,7 +232,6 @@ class ChatService {
               postTitle = postData?['title'] ?? 'شغلانة';
               finalChatType = 'job';
 
-              // ⭐ لو مفيش صور، جرب حقول أخرى
               if (postImage == null || postImage!.isEmpty) {
                 postImage =
                     postData?['imageUrl'] ??
@@ -136,7 +243,6 @@ class ChatService {
               print('✅ تم جلب صورة الشغلانة: $postImage');
               print('📝 عنوان الشغلانة: $postTitle');
             } else {
-              // لو مش موجود، استخدم الصورة الافتراضية
               postImage = 'assets/images/default_job_1.png';
               postTitle = 'شغلانة';
             }
@@ -150,16 +256,13 @@ class ChatService {
         }
       }
 
-      // ⭐ استخدام Transaction للأمان
       await _firestore.runTransaction((transaction) async {
         final chatRef = _firestore.collection(collectionName).doc(chatId);
         final chatDoc = await transaction.get(chatRef);
 
-        // جلب بيانات المستخدمين
         final currentUserData = await _getUserData(currentUser.uid);
         final receiverUserData = await _getUserData(receiverId);
 
-        // حفظ الرسالة
         final chatMessage = ChatMessage(
           id: messageRef.id,
           senderId: currentUser.uid,
@@ -179,9 +282,7 @@ class ChatService {
 
         transaction.set(messageRef, chatMessage.toFirestore());
 
-        // تحديث أو إنشاء غرفة المحادثة
         if (!chatDoc.exists) {
-          // إنشاء محادثة جديدة
           transaction.set(chatRef, {
             'user1Id': currentUser.uid,
             'user2Id': receiverId,
@@ -210,10 +311,6 @@ class ChatService {
           print('🏷️ postTitle: $postTitle');
           print('📁 chatType: $finalChatType');
         } else {
-          // تحديث المحادثة الموجودة
-          final existingData = chatDoc.data() as Map<String, dynamic>;
-          final existingPostId = existingData['postId'];
-
           transaction.update(chatRef, {
             'lastMessage': message.trim(),
             'lastMessageTime': FieldValue.serverTimestamp(),
@@ -221,7 +318,8 @@ class ChatService {
             'updatedAt': FieldValue.serverTimestamp(),
           });
 
-          // ⭐ تحديث بيانات المنشور فقط إذا كان postId مختلفاً
+          final existingData = chatDoc.data() as Map<String, dynamic>;
+          final existingPostId = existingData['postId'];
           if (postId != null && postId != existingPostId) {
             transaction.update(chatRef, {
               'postId': postId,
@@ -254,7 +352,6 @@ class ChatService {
     }
   }
 
-  // ⭐⭐ **مُعدّل: إرسال وسائط مع تحسينات جديدة**
   Future<void> sendMediaMessage({
     required String receiverId,
     required File mediaFile,
@@ -273,13 +370,11 @@ class ChatService {
 
       final mediaService = MediaService();
 
-      print('🔗 جاري التحقق من اتصال Supabase...');
       final isConnected = await mediaService.checkSupabaseConnection();
       if (!isConnected) {
         throw Exception('لا يمكن الاتصال بـ Supabase. تحقق من اتصال الإنترنت.');
       }
 
-      print('🧪 جاري اختبار الرفع...');
       final canUpload = await mediaService.testUploadToBucket();
       if (!canUpload) {
         throw Exception('''
@@ -291,7 +386,6 @@ class ChatService {
 ''');
       }
 
-      print('🔼 جاري رفع الوسائط...');
       final uploadResult = await mediaService.uploadMediaForChat(
         mediaFile: mediaFile,
       );
@@ -338,7 +432,6 @@ class ChatService {
     }
   }
 
-  // ⭐⭐ **جديد: إرسال صورة من المعرض**
   Future<void> sendImageMessage({
     required String receiverId,
     String? message,
@@ -366,7 +459,6 @@ class ChatService {
     }
   }
 
-  // ⭐⭐ **جديد: إرسال فيديو**
   Future<void> sendVideoMessage({
     required String receiverId,
     String? message,
@@ -394,7 +486,6 @@ class ChatService {
     }
   }
 
-  // ⭐⭐ **جديد: إرسال ملف**
   Future<void> sendFileMessage({
     required String receiverId,
     String? message,
@@ -422,7 +513,6 @@ class ChatService {
     }
   }
 
-  // ⭐⭐ **جديد: دالة اختبار نظام الوسائط بالكامل**
   Future<void> testMediaSystem() async {
     try {
       print('🧪 === اختبار نظام الوسائط بالكامل ===');
@@ -438,7 +528,6 @@ class ChatService {
     }
   }
 
-  // ⭐⭐ **جلب محادثات الشغلانات (جديد)**
   Stream<List<ChatRoom>> getJobChatRooms() {
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
@@ -472,7 +561,6 @@ class ChatService {
     );
   }
 
-  // ⭐⭐ **جلب محادثات السوق (جديد)**
   Stream<List<ChatRoom>> getMarketChatRooms() {
     final currentUser = _auth.currentUser;
     if (currentUser == null) {
@@ -506,7 +594,6 @@ class ChatService {
     );
   }
 
-  // ⭐⭐ **جلب رسائل محادثة محددة (مُعدل مع Collection منفصلة)**
   Stream<List<ChatMessage>> getChatMessages(
     String otherUserId,
     String? postId,
@@ -538,7 +625,6 @@ class ChatService {
         });
   }
 
-  // ⭐ محسّن جداً: تعيين الرسائل كمقروءة بشكل متوازي (مُعدل مع Collection)
   Future<void> markMessagesAsRead(
     String otherUserId,
     String? postId,
@@ -562,7 +648,6 @@ class ChatService {
     }
   }
 
-  // ⭐ دالة مساعدة لتحديث حالة قراءة الرسائل
   Future<void> _updateMessagesReadStatus(
     String collectionName,
     String chatId,
@@ -590,7 +675,6 @@ class ChatService {
     print('✅ تم تحديث ${messagesSnapshot.docs.length} رسالة كمقروءة');
   }
 
-  // ⭐ دالة مساعدة لتحديث حالة قراءة غرفة المحادثة
   Future<void> _updateChatRoomReadStatus(
     String collectionName,
     String chatId,
@@ -604,7 +688,6 @@ class ChatService {
     print('✅ تم تحديث unreadCount للمستخدم: $userId');
   }
 
-  // ⭐ محسّن: تعيين محادثة كمقروءة (مُعدل مع Collection)
   Future<void> markChatAsRead(
     String otherUserId,
     String? postId,
@@ -629,7 +712,6 @@ class ChatService {
     }
   }
 
-  // ⭐ محسّن: دالة تعديل الرسالة
   Future<void> updateMessage(
     String chatId,
     String messageId,
@@ -658,7 +740,6 @@ class ChatService {
     }
   }
 
-  // ⭐ محسّن: دالة حذف الرسالة
   Future<void> deleteMessage(String chatId, String messageId) async {
     try {
       await _firestore
@@ -675,7 +756,6 @@ class ChatService {
     }
   }
 
-  // ⭐ محسّن: حذف محادثة
   Future<void> deleteChat(
     String otherUserId,
     String? postId,
@@ -711,7 +791,6 @@ class ChatService {
     }
   }
 
-  // ⭐ محسّن: دالة لجلب بيانات المستخدم
   Future<Map<String, dynamic>> _getUserData(String userId) async {
     try {
       print('🔍 جاري جلب بيانات المستخدم: $userId');
@@ -737,7 +816,6 @@ class ChatService {
     }
   }
 
-  // ⭐ جديد: دالة للتحقق من وجود محادثة
   Future<bool> doesChatExist(
     String user1Id,
     String user2Id, [
@@ -750,7 +828,6 @@ class ChatService {
     return doc.exists;
   }
 
-  // ⭐ جديد: دالة لتحديث حالة الاتصال
   Future<void> updateUserOnlineStatus(bool isOnline) async {
     try {
       final currentUser = _auth.currentUser;
@@ -768,7 +845,6 @@ class ChatService {
     }
   }
 
-  // ⭐ جديد: دالة للحصول على آخر رسالة في المحادثة
   Stream<DocumentSnapshot?> getLastMessageStream(
     String chatId,
     String? chatType,
@@ -786,7 +862,6 @@ class ChatService {
         );
   }
 
-  // ⭐ جديد: دالة للحصول على معلومات المستخدم
   Future<Map<String, dynamic>> getUserData(String userId) async {
     try {
       final userDoc = await _firestore.collection('users').doc(userId).get();
@@ -800,7 +875,6 @@ class ChatService {
     }
   }
 
-  // ⭐ جديد: دالة تصحيح المحادثة
   Future<void> debugChatRoom(String chatId, String? chatType) async {
     try {
       final collectionName = _getChatCollection(chatType);
@@ -848,7 +922,6 @@ class ChatService {
     }
   }
 
-  // ⭐ محسّن: دالة لتفعيل Offline Support
   Future<void> enableOfflinePersistence() async {
     try {
       _firestore.settings = const Settings(
@@ -863,7 +936,6 @@ class ChatService {
     }
   }
 
-  // ⭐ جديد: دالة لتحميل صورة المنشور
   Future<String?> getPostImage(String postId) async {
     try {
       if (postId.isEmpty) return null;
@@ -890,8 +962,7 @@ class ChatService {
     }
   }
 
-  // ⭐ قديم: جلب جميع المحادثات (للتوافق مع الكود القديم)
   Stream<List<ChatRoom>> getChatRooms() {
-    return getJobChatRooms(); // للت
+    return getJobChatRooms();
   }
 }

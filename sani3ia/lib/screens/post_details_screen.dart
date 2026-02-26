@@ -6,6 +6,7 @@ import 'package:snae3ya/providers/post_provider.dart';
 import 'package:snae3ya/providers/application_provider.dart';
 import 'package:snae3ya/screens/edit_post_screen.dart';
 import 'package:snae3ya/screens/single_chat_screen.dart';
+import 'package:snae3ya/services/notification_helper.dart'; // ⭐ إضافة
 
 class PostDetailsScreen extends StatefulWidget {
   final Post post;
@@ -194,9 +195,7 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
     );
   }
 
-  // دالة حالة المنشور
   Widget _buildJobStatus() {
-    // أولاً: نتحقق من حالة الإنجاز
     if (_post.isAgreed) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -275,7 +274,6 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
       );
     }
 
-    // إذا كانت الشغلانة مفتوحة، نعرض حالة التوفر
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -622,8 +620,6 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
             ),
           ),
         ),
-
-        // زر واحد لتعيين التوفر
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
@@ -717,7 +713,7 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
           receiverId: post.authorId,
           isOnline: true,
           postId: post.id,
-          chatType: 'job', // ⭐⭐ أضف هذا
+          chatType: 'job',
         ),
       ),
     );
@@ -763,6 +759,16 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
           } else {
             postProvider.incrementApplications(post.id);
 
+            // ⭐ إرسال إشعار لصاحب الشغلانة
+            NotificationHelper.sendNewJobApplicationNotification(
+              postOwnerId: post.authorId,
+              applicantId: currentUser.uid,
+              applicantName: currentUser.displayName ?? 'مستخدم',
+              postTitle: post.title,
+              postId: post.id,
+              applicantImage: currentUser.photoURL,
+            );
+
             Navigator.push(
               context,
               MaterialPageRoute(
@@ -774,7 +780,7 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
                   initialMessage: 'هل الشغلانة "${post.title}" متوفرة؟',
                   postId: post.id,
                   isFromJobApplication: true,
-                  chatType: 'job', // ⭐⭐ أضف هذا
+                  chatType: 'job',
                 ),
               ),
             );
@@ -866,7 +872,6 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
     );
   }
 
-  // ⭐⭐ دالة تبديل حالة التوفر (محدثة مع setState)
   void _toggleAvailability(BuildContext context) {
     final newAvailability = !_post.isAvailable;
     final message = newAvailability
@@ -896,7 +901,6 @@ class _PostDetailsScreenState extends State<PostDetailsScreen> {
                   newAvailability,
                 );
 
-                // ⭐⭐ تحديث الواجهة بعد نجاح التغيير
                 setState(() {
                   _post = _post.copyWith(isAvailable: newAvailability);
                 });

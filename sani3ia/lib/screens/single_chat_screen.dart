@@ -22,6 +22,7 @@ import 'package:snae3ya/screens/live_tracking_screen.dart';
 import 'package:snae3ya/models/location_model.dart';
 import 'package:snae3ya/models/post_model.dart';
 import 'package:snae3ya/providers/user_provider.dart';
+import 'package:snae3ya/services/notification_helper.dart'; // ⭐ إضافة
 
 // ⭐ كاش لصور المستخدمين
 class UserImageCache {
@@ -1163,6 +1164,7 @@ class _SingleChatScreenState extends State<SingleChatScreen>
 
     try {
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
+      final currentUser = FirebaseAuth.instance.currentUser!;
 
       final tempMessageId =
           'temp_media_${DateTime.now().millisecondsSinceEpoch}';
@@ -1182,7 +1184,7 @@ class _SingleChatScreenState extends State<SingleChatScreen>
 
       final tempMessage = ChatMessage(
         id: tempMessageId,
-        senderId: FirebaseAuth.instance.currentUser!.uid,
+        senderId: currentUser.uid,
         receiverId: widget.receiverId,
         message: tempMessageText,
         timestamp: DateTime.now(),
@@ -1213,6 +1215,30 @@ class _SingleChatScreenState extends State<SingleChatScreen>
       );
 
       print('✅ تم إرسال الوسائط بنجاح');
+
+      // ⭐ إشعار برسالة وسائط جديدة (مباشر عبر OneSignal)
+      if (widget.receiverId != currentUser.uid) {
+        String preview = '';
+        switch (mediaType) {
+          case 'image':
+            preview = '📸 صورة';
+            break;
+          case 'video':
+            preview = '🎬 فيديو';
+            break;
+          default:
+            preview = '📎 ملف مرفق';
+        }
+        // استخدام الدالة الجديدة في ChatService
+        await _chatService.sendNewMessageNotification(
+          receiverId: widget.receiverId,
+          senderName: widget.userName,
+          messagePreview: preview,
+          postId: widget.postId,
+          chatType: widget.chatType,
+          senderId: currentUser.uid,
+        );
+      }
 
       _messageController.clear();
       setState(() {
@@ -1312,6 +1338,21 @@ class _SingleChatScreenState extends State<SingleChatScreen>
       );
 
       print('✅ _sendMessage: تم إرسال الرسالة بنجاح');
+
+      // ⭐ إشعار برسالة جديدة (إذا كانت رسالة عادية وليست استفسار توفر)
+      if (!isAvailabilityQuestion && widget.receiverId != currentUser.uid) {
+        // استخدام الدالة الجديدة في ChatService بدلاً من NotificationHelper
+        await _chatService.sendNewMessageNotification(
+          receiverId: widget.receiverId,
+          senderName: widget.userName,
+          messagePreview: messageToSend.length > 30
+              ? '${messageToSend.substring(0, 30)}...'
+              : messageToSend,
+          postId: widget.postId,
+          chatType: widget.chatType,
+          senderId: currentUser.uid,
+        );
+      }
 
       chatProvider.removeTempMessage(
         widget.receiverId,

@@ -4,8 +4,6 @@
     <!-- ⭐⭐ صلاحيات الموقع -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-    <!-- ⚠️ تعليق هذا إذا لم تكن بحاجة إليه حالياً -->
-    <!-- <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/> -->
     
     <!-- ⭐⭐ صلاحيات الإنترنت -->
     <uses-permission android:name="android.permission.INTERNET"/>
@@ -79,12 +77,11 @@
             </intent-filter>
         </activity>
         
-        <!-- ⭐⭐ تعليق هذه الأسطر لأنها تسبب مشكلة - الموارد غير موجودة -->
+        <!-- ⭐⭐ هذه الأسطر معلقة – يمكن إلغاء تعليقها إذا أضفت الموارد المناسبة -->
         <!--
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@drawable/ic_notification"/>
-            
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/notification_color"/>
@@ -94,38 +91,24 @@
             android:name="flutterEmbedding"
             android:value="2"/>
             
-        <!-- ⭐⭐ إضافة service للإشعارات إذا كنت تستخدم Firebase Messaging -->
-        <!--
-        <service
-            android:name=".java.MyFirebaseMessagingService"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT"/>
-            </intent-filter>
-        </service>
-        -->
+        <!-- ⭐⭐ خدمة OneSignal (تُدار تلقائياً عبر الـ SDK) -->
+        <!-- لا حاجة لإضافة أي شيء هنا -->
+        
     </application>
     
     <queries>
-        <!-- ⭐⭐ استعلامات للروابط العميقة -->
         <intent>
             <action android:name="android.intent.action.VIEW"/>
             <data android:scheme="https"/>
         </intent>
-        
-        <!-- ⭐⭐ استعلامات لمشاركة المحتوى -->
         <intent>
             <action android:name="android.intent.action.SEND"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        
-        <!-- ⭐⭐ استعلامات لمعالجة النص -->
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
-        
-        <!-- ⭐⭐ استعلامات لخرائط جوجل -->
         <package android:name="com.google.android.apps.maps"/>
     </queries>
 </manifest>

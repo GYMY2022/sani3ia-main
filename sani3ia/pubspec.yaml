@@ -20,6 +20,8 @@ dependencies:
   supabase_flutter: ^2.1.1
   path: ^1.8.3
   mime: ^2.0.0
+  onesignal_flutter: ^5.2.0 
+  http: ^1.1.0
 
   # التوطين واللغات
   flutter_localizations:

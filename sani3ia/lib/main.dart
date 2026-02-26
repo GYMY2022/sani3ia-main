@@ -14,6 +14,14 @@ import 'firebase_options.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:snae3ya/services/supabase_service.dart';
 
+// ✅ Notification imports
+import 'package:snae3ya/services/fcm_service.dart';
+import 'package:snae3ya/services/notification_service.dart';
+import 'package:snae3ya/providers/notification_provider.dart';
+
+// ⭐ إضافة OneSignal
+import 'package:onesignal_flutter/onesignal_flutter.dart';
+
 import 'package:snae3ya/screens/splash_screen.dart';
 import 'package:snae3ya/screens/auth_screen.dart';
 import 'package:snae3ya/screens/email_verification_screen.dart';
@@ -27,12 +35,8 @@ import 'package:snae3ya/providers/user_provider.dart';
 import 'package:snae3ya/providers/favorites_provider.dart';
 import 'package:snae3ya/providers/service_provider.dart';
 import 'package:snae3ya/providers/post_provider.dart';
-import 'package:snae3ya/providers/worker_provider.dart'; // ⭐⭐ إضافة WorkerProvider
-
-// ✅ إضافة ProductProvider للسوق
+import 'package:snae3ya/providers/worker_provider.dart';
 import 'package:snae3ya/providers/product_provider.dart';
-
-// ✅ إضافة استيراد الـ Providers الجديدة
 import 'package:snae3ya/providers/chat_provider.dart';
 import 'package:snae3ya/providers/application_provider.dart';
 
@@ -59,6 +63,9 @@ import 'package:snae3ya/screens/single_chat_screen.dart';
 
 // ✅ إضافة استيراد OnlineStatusManager
 import 'package:snae3ya/services/online_status_manager.dart';
+
+// ⭐ تعريف navigatorKey للتنقل من خارج الـ Widget tree
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 class AppRoutes {
   static const splash = '/';
@@ -125,7 +132,6 @@ void main() async {
     print("✅ Firebase initialized successfully!");
   } catch (e) {
     if (e.toString().contains('duplicate-app')) {
-      // إذا كان التطبيق مهيأ مسبقاً، استخدم النسخة الحالية
       Firebase.app();
       print("✅ Firebase already initialized, using existing instance");
     } else {
@@ -141,6 +147,44 @@ void main() async {
     print("❌ Supabase initialization error: $e");
   }
 
+  // ✅ تهيئة FCM والإشعارات المحلية (اختياري)
+  try {
+    final fcmService = FCMService();
+    await fcmService.initialize();
+
+    final notificationService = NotificationService();
+    await notificationService.initialize();
+    print("✅ FCM and Local Notifications initialized");
+  } catch (e) {
+    print("❌ Failed to initialize notifications: $e");
+  }
+
+  // ⭐ تهيئة OneSignal
+  try {
+    OneSignal.initialize("06a56c7a-1579-4cf0-997d-11982bfb1c35");
+    OneSignal.Notifications.requestPermission(true);
+    OneSignal.Notifications.addClickListener((event) {
+      print(
+        '🔔 تم الضغط على إشعار: ${event.notification.jsonRepresentation()}',
+      );
+      final data = event.notification.additionalData;
+      if (data != null) {
+        final screen = data['screen'];
+        final arguments = <String, dynamic>{};
+        data.forEach((key, value) {
+          if (key != 'screen') arguments[key] = value;
+        });
+        navigatorKey.currentState?.pushNamed('/$screen', arguments: arguments);
+      }
+    });
+    OneSignal.Notifications.addForegroundWillDisplayListener((event) {
+      print('📩 إشعار جديد في المقدمة');
+    });
+    print("✅ OneSignal initialized successfully!");
+  } catch (e) {
+    print("❌ Failed to initialize OneSignal: $e");
+  }
+
   final prefs = await SharedPreferences.getInstance();
   final isDarkMode = prefs.getBool('isDarkMode') ?? false;
   final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
@@ -148,7 +192,6 @@ void main() async {
   runApp(
     MultiProvider(
       providers: [
-        // ✅ Providers الحالية
         ChangeNotifierProvider(create: (_) => UserProvider()),
         ChangeNotifierProvider(create: (context) => WalletRepository()),
         ChangeNotifierProxyProvider<WalletRepository, WalletService>(
@@ -159,16 +202,11 @@ void main() async {
         ChangeNotifierProvider(create: (_) => FavoritesProvider()),
         ChangeNotifierProvider(create: (_) => ServiceProvider()),
         ChangeNotifierProvider(create: (_) => PostProvider()),
-
-        // ✅ الـ Providers الجديدة للنظام
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => ApplicationProvider()),
-
-        // ⭐⭐ إضافة WorkerProvider للصنايعية
         ChangeNotifierProvider(create: (_) => WorkerProvider()),
-
-        // ⭐⭐ إضافة ProductProvider للسوق (جديد)
         ChangeNotifierProvider(create: (_) => ProductProvider()),
+        ChangeNotifierProvider(create: (_) => NotificationProvider()),
       ],
       child: EasyLocalization(
         supportedLocales: const [Locale('ar'), Locale('en')],
@@ -209,6 +247,18 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _isDarkMode = widget.isDarkMode;
     WidgetsBinding.instance.addObserver(this);
     _initializeApp();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleInitialNotification();
+    });
+  }
+
+  void _handleInitialNotification() {
+    final data = FCMService.getLastNotificationData();
+    if (data != null) {
+      print('📱 فتح التطبيق من إشعار FCM: $data');
+      FCMService.clearLastNotificationData();
+    }
   }
 
   @override
@@ -284,7 +334,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     await prefs.setBool('isDarkMode', isDarkMode);
   }
 
-  // 🔐 دالة للتحقق من الصفحات المحمية
   Future<void> _checkProtectedRoute(
     String routeName,
     BuildContext context,
@@ -332,16 +381,13 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  // دالة لتهيئة الـ Providers بعد اكتمال البناء
   void _initializeProviders(BuildContext context) {
     if (_hasInitializedProviders) return;
 
     try {
-      // تهيئة الـ ChatProvider
       final chatProvider = Provider.of<ChatProvider>(context, listen: false);
       chatProvider.loadChatRooms();
 
-      // تهيئة الـ ApplicationProvider
       final applicationProvider = Provider.of<ApplicationProvider>(
         context,
         listen: false,
@@ -349,12 +395,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       applicationProvider.loadUserApplications();
       applicationProvider.loadReceivedApplications();
 
-      // تهيئة الـ ProductProvider
       final productProvider = Provider.of<ProductProvider>(
         context,
         listen: false,
       );
       productProvider.loadAllProducts();
+
+      final notificationProvider = Provider.of<NotificationProvider>(
+        context,
+        listen: false,
+      );
+      notificationProvider.loadNotifications();
 
       _hasInitializedProviders = true;
       print('✅ تم تهيئة جميع الـ Providers بنجاح');
@@ -363,7 +414,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  // دالة منفصلة للتحقق من حالة المستخدم
   Future<void> _checkUserState(BuildContext context) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
@@ -386,7 +436,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
         final userProvider = Provider.of<UserProvider>(context, listen: false);
 
-        // تحميل بيانات المستخدم مرة واحدة فقط
         if (!userProvider.hasUserData && !userProvider.isLoading) {
           await userProvider.loadUserData();
         }
@@ -396,7 +445,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
           await user.sendEmailVerification();
         }
 
-        // تحديث حالة الاتصال مرة واحدة فقط
         if (!_hasUpdatedOnlineStatus) {
           final onlineManager = OnlineStatusManager();
           onlineManager.setOnlineStatus(true);
@@ -419,7 +467,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    // تهيئة الـ Providers بعد اكتمال البناء
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && !_hasInitializedProviders) {
         _initializeProviders(context);
@@ -428,6 +475,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     });
 
     return MaterialApp(
+      navigatorKey: navigatorKey,
       debugShowCheckedModeBanner: false,
       title: 'app_name'.tr(),
       locale: _currentLocale ?? context.locale,

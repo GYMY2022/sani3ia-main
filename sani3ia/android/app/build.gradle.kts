@@ -2,12 +2,11 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("dev.flutter.flutter-gradle-plugin")
-    // ✅ أضفنا البلجن الخاص بـ Google Services هنا
     id("com.google.gms.google-services")
 }
 
 android {
-    namespace = "com.example.sani3ia_app"  // غير هنا فقط
+    namespace = "com.example.sani3ia_app"
     compileSdk = 36
     ndkVersion = "27.0.12077973"
 
@@ -26,7 +25,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.sani3ia_app"  // ⬅️ غير هنا فقط
+        applicationId = "com.example.sani3ia_app"
         minSdk = 23
         targetSdk = 36
         versionCode = 1
@@ -53,8 +52,4 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-    // ✅ لو هتستخدم Firebase SDKs (زي Auth أو Firestore)، ضيفهم هنا
-    // مثال:
-    // implementation("com.google.firebase:firebase-auth:22.3.1")
-    // implementation("com.google.firebase:firebase-firestore:25.1.1")
 }
