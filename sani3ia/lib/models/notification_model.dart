@@ -34,13 +34,12 @@ class NotificationModel {
   final NotificationType type;
   final String title;
   final String body;
-  final Map<String, dynamic>?
-  data; // بيانات إضافية (postId, productId, chatId, etc)
+  final Map<String, dynamic>? data; // بيانات إضافية
   final bool isRead;
   final DateTime createdAt;
   final DateTime? readAt;
   final String? targetRoute; // المسار المستهدف عند الضغط
-  final Map<String, dynamic>? targetArguments;
+  final Map<String, dynamic>? targetArguments; // ⭐ الوسائط المستهدفة
   final bool isSystemWide; // هل الإشعار لجميع المستخدمين؟
 
   NotificationModel({
@@ -57,7 +56,7 @@ class NotificationModel {
     required this.createdAt,
     this.readAt,
     this.targetRoute,
-    this.targetArguments,
+    this.targetArguments, // ⭐ إضافة
     this.isSystemWide = false,
   });
 
@@ -79,7 +78,8 @@ class NotificationModel {
           ? (data['readAt'] as Timestamp).toDate()
           : null,
       targetRoute: data['targetRoute'],
-      targetArguments: data['targetArguments'] as Map<String, dynamic>?,
+      targetArguments:
+          data['targetArguments'] as Map<String, dynamic>?, // ⭐ إضافة
       isSystemWide: data['isSystemWide'] ?? false,
     );
   }
@@ -98,7 +98,7 @@ class NotificationModel {
       'createdAt': Timestamp.fromDate(createdAt),
       'readAt': readAt != null ? Timestamp.fromDate(readAt!) : null,
       'targetRoute': targetRoute,
-      'targetArguments': targetArguments,
+      'targetArguments': targetArguments, // ⭐ إضافة
       'isSystemWide': isSystemWide,
     };
   }

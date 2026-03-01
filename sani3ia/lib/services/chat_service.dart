@@ -17,14 +17,17 @@ class ChatService {
 
   // ⭐ OneSignal constants
   static const String _oneSignalAppId = "06a56c7a-1579-4cf0-997d-11982bfb1c35";
+  // 🔑 تم وضع REST API Key الجديد
   static const String _oneSignalRestApiKey =
-      "os_v2_app_a2swy6qvpfgpbgl5cgmcx6y4guouwrihpd2u2xvm6ixc5ol4zqhgjif6oxffzsz3jdbuq6znldrm5s74q66p4qvjypuryfnijpkyxry";
+      "os_v2_app_a2swy6qvpfgpbgl5cgmcx6y4gw5gqwxp2mjeowezyl5ycrpk3pqwomfkwau7f66kp4wjoaaivgh2hycwmzbferzlvaaiq65jq5sbydi";
 
-  // ⭐ دالة مساعدة لجلب playerId لمستخدم
+  // ⭐ دالة مساعدة لجلب playerId لمستخدم مع طباعة القيمة
   Future<String?> _getUserPlayerId(String userId) async {
     try {
       final doc = await _firestore.collection('users').doc(userId).get();
-      return doc.data()?['onesignalPlayerId'];
+      final playerId = doc.data()?['onesignalPlayerId'];
+      print('📌 _getUserPlayerId for $userId: $playerId');
+      return playerId;
     } catch (e) {
       print('❌ خطأ في جلب playerId: $e');
       return null;
@@ -51,7 +54,7 @@ class ChatService {
       'headings': {'en': title},
       'contents': {'en': body},
       'data': data,
-      // تم إزالة android_channel_id لاستخدام القناة الافتراضية
+      // ✅ تم إزالة android_channel_id تماماً لاستخدام القناة الافتراضية
       'android': {'sound': 'notification'},
       'sound': 'notification',
     };
@@ -189,6 +192,7 @@ class ChatService {
     );
   }
 
+  // باقي الدوال كما هي (بدون تغيير)
   // ⭐ دالة لتحديد Collection المناسبة
   String _getChatCollection(String? chatType) {
     return chatType == 'product' ? 'market_chats' : 'chats';
@@ -222,7 +226,6 @@ class ChatService {
       final currentUser = _auth.currentUser;
       if (currentUser == null) throw Exception('يجب تسجيل الدخول أولاً');
 
-      // التحقق من صحة البيانات
       if (message.trim().isEmpty && mediaUrl == null) {
         throw Exception('الرسالة لا يمكن أن تكون فارغة');
       }
@@ -235,10 +238,7 @@ class ChatService {
         throw Exception('لا يمكن أن تكون الرسالة سؤال ورد في نفس الوقت');
       }
 
-      // ⭐⭐ تحديد Collection المناسبة
       final collectionName = _getChatCollection(chatType);
-
-      // ⭐⭐ استخدام postId في توليد chatId
       final chatId = generateChatId(currentUser.uid, receiverId, postId);
       final messageRef = _firestore
           .collection(collectionName)
@@ -246,7 +246,6 @@ class ChatService {
           .collection('messages')
           .doc();
 
-      // ⭐ جلب صورة وعنوان المنشور إذا كان هناك postId
       String? postImage;
       String? postTitle;
       String? finalChatType = chatType;
@@ -254,14 +253,11 @@ class ChatService {
       if (postId != null && postId.isNotEmpty) {
         try {
           print('🔍 جاري جلب بيانات المنشور: $postId');
-
           if (chatType == 'product') {
-            // جلب من products
             final productDoc = await _firestore
                 .collection('products')
                 .doc(postId)
                 .get();
-
             if (productDoc.exists) {
               final productData = productDoc.data();
               final images = productData?['imageUrls'] ?? [];
@@ -273,21 +269,17 @@ class ChatService {
               }
               postTitle = productData?['title'] ?? 'منتج';
               finalChatType = 'product';
-
               if (postImage == null || postImage!.isEmpty) {
                 postImage = 'assets/images/default_product.png';
               }
-
               print('✅ تم جلب صورة المنتج: $postImage');
               print('📝 عنوان المنتج: $postTitle');
             }
           } else {
-            // جلب من posts (الشغلانات)
             final postDoc = await _firestore
                 .collection('posts')
                 .doc(postId)
                 .get();
-
             if (postDoc.exists) {
               final postData = postDoc.data();
               final images = postData?['images'] ?? [];
@@ -299,7 +291,6 @@ class ChatService {
               }
               postTitle = postData?['title'] ?? 'شغلانة';
               finalChatType = 'job';
-
               if (postImage == null || postImage!.isEmpty) {
                 postImage =
                     postData?['imageUrl'] ??
@@ -307,7 +298,6 @@ class ChatService {
                     postData?['postImage'] ??
                     'assets/images/default_job_1.png';
               }
-
               print('✅ تم جلب صورة الشغلانة: $postImage');
               print('📝 عنوان الشغلانة: $postTitle');
             } else {
@@ -324,16 +314,12 @@ class ChatService {
         }
       }
 
-      // ⭐ استخدام Transaction للأمان
       await _firestore.runTransaction((transaction) async {
         final chatRef = _firestore.collection(collectionName).doc(chatId);
         final chatDoc = await transaction.get(chatRef);
-
-        // جلب بيانات المستخدمين
         final currentUserData = await _getUserData(currentUser.uid);
         final receiverUserData = await _getUserData(receiverId);
 
-        // حفظ الرسالة
         final chatMessage = ChatMessage(
           id: messageRef.id,
           senderId: currentUser.uid,
@@ -353,9 +339,7 @@ class ChatService {
 
         transaction.set(messageRef, chatMessage.toFirestore());
 
-        // تحديث أو إنشاء غرفة المحادثة
         if (!chatDoc.exists) {
-          // إنشاء محادثة جديدة
           transaction.set(chatRef, {
             'user1Id': currentUser.uid,
             'user2Id': receiverId,
@@ -377,25 +361,20 @@ class ChatService {
             'postTitle': postTitle,
             'chatType': finalChatType,
           });
-
           print('✅ تم إنشاء محادثة جديدة في $collectionName: $chatId');
           print('📌 postId: $postId');
           print('🖼️ postImage: $postImage');
           print('🏷️ postTitle: $postTitle');
           print('📁 chatType: $finalChatType');
         } else {
-          // تحديث المحادثة الموجودة
           final existingData = chatDoc.data() as Map<String, dynamic>;
           final existingPostId = existingData['postId'];
-
           transaction.update(chatRef, {
             'lastMessage': message.trim(),
             'lastMessageTime': FieldValue.serverTimestamp(),
             'unreadCounts.$receiverId': FieldValue.increment(1),
             'updatedAt': FieldValue.serverTimestamp(),
           });
-
-          // ⭐ تحديث بيانات المنشور فقط إذا كان postId مختلفاً
           if (postId != null && postId != existingPostId) {
             transaction.update(chatRef, {
               'postId': postId,
@@ -405,7 +384,6 @@ class ChatService {
             });
             print('🔄 تم تحديث صورة المنشور للمحادثة الموجودة');
           }
-
           print('✅ تم تحديث المحادثة الموجودة في $collectionName: $chatId');
         }
       });
@@ -447,13 +425,11 @@ class ChatService {
 
       final mediaService = MediaService();
 
-      print('🔗 جاري التحقق من اتصال Supabase...');
       final isConnected = await mediaService.checkSupabaseConnection();
       if (!isConnected) {
         throw Exception('لا يمكن الاتصال بـ Supabase. تحقق من اتصال الإنترنت.');
       }
 
-      print('🧪 جاري اختبار الرفع...');
       final canUpload = await mediaService.testUploadToBucket();
       if (!canUpload) {
         throw Exception('''
@@ -465,7 +441,6 @@ class ChatService {
 ''');
       }
 
-      print('🔼 جاري رفع الوسائط...');
       final uploadResult = await mediaService.uploadMediaForChat(
         mediaFile: mediaFile,
       );
@@ -507,7 +482,6 @@ class ChatService {
       print('❌ === فشل في إرسال الوسائط ===');
       print('🚨 الخطأ: $e');
       print('📋 StackTrace: ${e.toString()}');
-
       throw Exception('فشل في إرسال الملف: ${e.toString()}');
     }
   }
@@ -600,10 +574,8 @@ class ChatService {
   Future<void> testMediaSystem() async {
     try {
       print('🧪 === اختبار نظام الوسائط بالكامل ===');
-
       final mediaService = MediaService();
       await mediaService.testCompleteSystem();
-
       print('🎉 === اختبار النظام ناجح ===');
     } catch (e) {
       print('❌ === اختبار النظام فشل ===');
@@ -619,7 +591,6 @@ class ChatService {
       print('❌ لا يوجد مستخدم مسجل دخول');
       return const Stream.empty();
     }
-
     print('🔍 جاري تحميل محادثات الشغلانات للمستخدم: ${currentUser.uid}');
 
     final Stream<List<ChatRoom>> user1Stream = _firestore
@@ -653,7 +624,6 @@ class ChatService {
       print('❌ لا يوجد مستخدم مسجل دخول');
       return const Stream.empty();
     }
-
     print('🔍 جاري تحميل محادثات السوق للمستخدم: ${currentUser.uid}');
 
     final Stream<List<ChatRoom>> user1Stream = _firestore
@@ -691,7 +661,6 @@ class ChatService {
       print('❌ لا يوجد مستخدم مسجل دخول');
       return const Stream.empty();
     }
-
     final collectionName = _getChatCollection(chatType);
     final chatId = generateChatId(currentUser.uid, otherUserId, postId);
     print('🔍 جاري تحميل رسائل المحادثة من $collectionName: $chatId');
@@ -813,7 +782,6 @@ class ChatService {
       if (newMessage.trim().isEmpty) {
         throw Exception('الرسالة لا يمكن أن تكون فارغة');
       }
-
       await _firestore
           .collection('chats')
           .doc(chatId)
@@ -824,7 +792,6 @@ class ChatService {
             'isEdited': true,
             'editedAt': FieldValue.serverTimestamp(),
           });
-
       print('✅ تم تعديل الرسالة: $messageId');
     } catch (e) {
       print('❌ فشل في تعديل الرسالة: $e');
@@ -841,7 +808,6 @@ class ChatService {
           .collection('messages')
           .doc(messageId)
           .delete();
-
       print('✅ تم حذف الرسالة: $messageId');
     } catch (e) {
       print('❌ فشل في حذف الرسالة: $e');
@@ -877,7 +843,6 @@ class ChatService {
       }
 
       await _firestore.collection(collectionName).doc(chatId).delete();
-
       print('✅ تم حذف المحادثة بنجاح: $chatId');
     } catch (e) {
       print('❌ فشل في حذف المحادثة: $e');
@@ -890,7 +855,6 @@ class ChatService {
     try {
       print('🔍 جاري جلب بيانات المستخدم: $userId');
       final userDoc = await _firestore.collection('users').doc(userId).get();
-
       if (userDoc.exists) {
         final data = userDoc.data() ?? {};
         print('✅ تم جلب بيانات المستخدم: ${data['name'] ?? 'غير معروف'}');
@@ -929,13 +893,11 @@ class ChatService {
     try {
       final currentUser = _auth.currentUser;
       if (currentUser == null) return;
-
       await _firestore.collection('users').doc(currentUser.uid).set({
         'isOnline': isOnline,
         'lastSeen': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-
       print('✅ تم تحديث حالة الاتصال: ${isOnline ? 'متصل' : 'غير متصل'}');
     } catch (e) {
       print('❌ خطأ في تحديث حالة الاتصال: $e');
@@ -979,7 +941,6 @@ class ChatService {
     try {
       final collectionName = _getChatCollection(chatType);
       print('🐛 === تصحيح غرفة المحادثة في $collectionName ===');
-
       final chatDoc = await _firestore
           .collection(collectionName)
           .doc(chatId)
@@ -1041,7 +1002,6 @@ class ChatService {
   Future<String?> getPostImage(String postId) async {
     try {
       if (postId.isEmpty) return null;
-
       final postDoc = await _firestore.collection('posts').doc(postId).get();
       if (postDoc.exists) {
         final postData = postDoc.data();
@@ -1052,7 +1012,6 @@ class ChatService {
             return firstImage;
           }
         }
-
         return postData?['imageUrl'] ??
             postData?['image'] ??
             postData?['postImage'];

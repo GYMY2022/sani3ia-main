@@ -164,55 +164,77 @@ void main() async {
 
   // ⭐ تهيئة OneSignal
   try {
-    // 🔥 تفعيل وضع التصحيح
     OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
-
     OneSignal.initialize("06a56c7a-1579-4cf0-997d-11982bfb1c35");
 
-    // ⭐ مراقبة حالة المستخدم
     OneSignal.User.addObserver((state) {
       print("📌 OneSignal User state: ${state.jsonRepresentation()}");
     });
 
-    // ⭐ طباعة معرف الاشتراك بعد تأخير طويل (15 ثانية)
     Future.delayed(const Duration(seconds: 15), () {
       final subscriptionId = OneSignal.User.pushSubscription.id;
       print(
         "📌 OneSignal User.pushSubscription.id (after 15s): $subscriptionId",
       );
-      if (subscriptionId != null && subscriptionId.isNotEmpty) {
-        print("✅ OneSignal Subscription is active with ID: $subscriptionId");
-      } else {
-        print(
-          "❌ OneSignal Subscription is NOT active (pushSubscription.id is null/empty).",
-        );
-      }
     });
 
     OneSignal.Notifications.requestPermission(true);
+
+    // ⭐ معالج النقر على الإشعارات من OneSignal
     OneSignal.Notifications.addClickListener((event) {
       print(
-        '🔔 تم الضغط على إشعار: ${event.notification.jsonRepresentation()}',
+        '🔔 تم الضغط على إشعار OneSignal: ${event.notification.jsonRepresentation()}',
       );
       final data = event.notification.additionalData;
       if (data != null) {
+        print('📦 بيانات الإشعار: $data');
         final screen = data['screen'];
-        final arguments = <String, dynamic>{};
-        data.forEach((key, value) {
-          if (key != 'screen') arguments[key] = value;
-        });
-        navigatorKey.currentState?.pushNamed('/$screen', arguments: arguments);
+        if (screen != null) {
+          final arguments = Map<String, dynamic>.from(data);
+          arguments.remove('screen');
+          print('🔄 التنقل إلى /$screen بالبيانات: $arguments');
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            navigatorKey.currentState?.pushNamed(
+              '/$screen',
+              arguments: arguments,
+            );
+          });
+        } else {
+          print('⚠️ لا يوجد مفتاح "screen" في بيانات الإشعار');
+        }
       }
     });
+
     OneSignal.Notifications.addForegroundWillDisplayListener((event) {
       print('📩 إشعار جديد في المقدمة');
     });
+
     print("✅ OneSignal initialized successfully!");
   } catch (e) {
     print("❌ Failed to initialize OneSignal: $e");
   }
 
-  // ⭐ إنشاء قناة إشعارات لنظام Android
+  // ⭐ معالجة الإشعارات التي تفتح التطبيق من الخلفية (FCM)
+  Future.delayed(const Duration(milliseconds: 500), () {
+    final initialMessageData = FCMService.getLastNotificationData();
+    if (initialMessageData != null) {
+      print('📱 فتح التطبيق من إشعار FCM: $initialMessageData');
+      final screen = initialMessageData['screen'];
+      if (screen != null) {
+        final arguments = Map<String, dynamic>.from(initialMessageData);
+        arguments.remove('screen');
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          navigatorKey.currentState?.pushNamed(
+            '/$screen',
+            arguments: arguments,
+          );
+        });
+      }
+      FCMService.clearLastNotificationData();
+    }
+  });
+
+  // ⭐ إنشاء قناة إشعارات لنظام Android (باستخدام الصوت الافتراضي)
   try {
     final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
         FlutterLocalNotificationsPlugin();
@@ -242,7 +264,7 @@ void main() async {
         >()
         ?.createNotificationChannel(channel);
 
-    print("✅ تم إنشاء قناة الإشعارات بنجاح");
+    print("✅ تم إنشاء قناة الإشعارات بنجاح (بالصوت الافتراضي)");
   } catch (e) {
     print("❌ فشل إنشاء قناة الإشعارات: $e");
   }
@@ -309,18 +331,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     _isDarkMode = widget.isDarkMode;
     WidgetsBinding.instance.addObserver(this);
     _initializeApp();
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _handleInitialNotification();
-    });
-  }
-
-  void _handleInitialNotification() {
-    final data = FCMService.getLastNotificationData();
-    if (data != null) {
-      print('📱 فتح التطبيق من إشعار FCM: $data');
-      FCMService.clearLastNotificationData();
-    }
   }
 
   @override
@@ -577,11 +587,35 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             ),
       initialRoute: AppRoutes.splash,
       onGenerateRoute: (settings) {
+        print('🛣️ onGenerateRoute: ${settings.name}');
+        print('📦 arguments: ${settings.arguments}');
+
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _checkProtectedRoute(settings.name!, context);
           }
         });
+
+        // التعامل مع المسار بدون شرطة مائلة (قادم من الإشعارات)
+        if (settings.name == 'single-chat') {
+          final args = settings.arguments as Map<String, dynamic>? ?? {};
+          print(
+            '📦 تحويل arguments لـ SingleChatScreen (من single-chat): $args',
+          );
+          return MaterialPageRoute(
+            builder: (_) => SingleChatScreen(
+              userName: args['userName'] ?? 'مستخدم',
+              userImage:
+                  args['userImage'] ?? 'assets/images/default_profile.png',
+              receiverId: args['receiverId'] ?? '',
+              isOnline: args['isOnline'] ?? false,
+              initialMessage: args['initialMessage'],
+              postId: args['postId'],
+              isFromJobApplication: args['isFromJobApplication'] ?? false,
+              chatType: args['chatType'],
+            ),
+          );
+        }
 
         switch (settings.name) {
           case AppRoutes.splash:
@@ -616,6 +650,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
             return MaterialPageRoute(builder: (_) => const ChatScreen());
           case AppRoutes.singleChat:
             final args = settings.arguments as Map<String, dynamic>? ?? {};
+            print('📦 تحويل arguments لـ SingleChatScreen: $args');
             return MaterialPageRoute(
               builder: (_) => SingleChatScreen(
                 userName: args['userName'] ?? 'مستخدم',
@@ -626,6 +661,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
                 initialMessage: args['initialMessage'],
                 postId: args['postId'],
                 isFromJobApplication: args['isFromJobApplication'] ?? false,
+                chatType: args['chatType'],
               ),
             );
           case AppRoutes.settings:
