@@ -119,6 +119,7 @@ class UserProvider with ChangeNotifier {
         final data = doc.data()!;
         _user = UserModel.fromMap(data);
         print('✅ تم تحميل بيانات المستخدم: ${_user?.name}');
+        print('📋 OneSignal PlayerId: ${_user?.onesignalPlayerId}');
       } else {
         print('⚠️ لا توجد بيانات للمستخدم في Firestore');
         _user = UserModel(

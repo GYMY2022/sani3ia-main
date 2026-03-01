@@ -15,7 +15,7 @@ import 'package:snae3ya/screens/location_picker_screen.dart';
 import 'package:snae3ya/models/location_model.dart';
 import 'package:snae3ya/screens/complete_profile_screen.dart';
 import 'package:snae3ya/services/location_service.dart';
-import 'package:onesignal_flutter/onesignal_flutter.dart'; // ⭐ إضافة OneSignal
+import 'package:onesignal_flutter/onesignal_flutter.dart';
 
 // ✅ قائمة المهن المتاحة
 final List<String> professions = [
@@ -332,34 +332,41 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  // ⭐ دالة محسنة لحفظ OneSignal PlayerId مع إعادة المحاولة
+  // ⭐ دالة محسنة لحفظ OneSignal PlayerId (معرف الاشتراك)
   Future<void> _saveOneSignalPlayerId(String userId) async {
-    // محاولة جلب playerId بعد تأخير قصير لأن OneSignal قد لا يكون جاهزاً فوراً
-    for (int i = 0; i < 3; i++) {
+    // انتظر 5 ثواني أولاً لضمان تهيئة OneSignal
+    await Future.delayed(const Duration(seconds: 5));
+
+    for (int i = 0; i < 15; i++) {
+      // 15 محاولة
       try {
-        final playerId = await OneSignal.User.getOnesignalId();
-        if (playerId != null && playerId.isNotEmpty) {
-          await FirebaseFirestore.instance
-              .collection('users')
-              .doc(userId)
-              .update({
-                'onesignalPlayerId': playerId,
-                'lastPlayerIdUpdate': FieldValue.serverTimestamp(),
-              });
-          print('✅ OneSignal PlayerId محفوظ: $playerId');
-          return;
+        final subscriptionId = OneSignal.User.pushSubscription.id;
+        print(
+          '📌 OneSignal.User.pushSubscription.id (محاولة ${i + 1}): $subscriptionId',
+        );
+
+        if (subscriptionId != null && subscriptionId.isNotEmpty) {
+          // تحديث أو إضافة الحقل في Firestore
+          await FirebaseFirestore.instance.collection('users').doc(userId).set({
+            'onesignalPlayerId': subscriptionId, // هذا هو معرف الاشتراك
+            'lastPlayerIdUpdate': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+          print(
+            '✅ OneSignal Subscription ID محفوظ/محدث في Firestore: $subscriptionId',
+          );
+          return; // نجاح
         } else {
           print(
-            '⏳ OneSignal PlayerId غير متوفر بعد، إعادة المحاولة ${i + 1}/3',
+            '⏳ OneSignal Subscription ID غير متوفر بعد، إعادة المحاولة بعد ثانية...',
           );
           await Future.delayed(const Duration(seconds: 1));
         }
       } catch (e) {
-        print('⚠️ خطأ في حفظ OneSignal PlayerId: $e');
+        print('⚠️ خطأ في محاولة حفظ OneSignal ID: $e');
         await Future.delayed(const Duration(seconds: 1));
       }
     }
-    print('⚠️ لم نتمكن من الحصول على OneSignal PlayerId بعد 3 محاولات');
+    print('❌ فشل الحصول على OneSignal Subscription ID بعد 15 محاولة');
   }
 
   Future<void> _submit() async {
@@ -477,7 +484,7 @@ class _AuthScreenState extends State<AuthScreen> {
               // تأكد من تحميل البيانات بالكامل
               await userProvider.loadUserData();
 
-              // ⭐ حفظ OneSignal PlayerId بعد تحميل البيانات
+              // ⭐ حفظ/تحديث OneSignal PlayerId (معرف الاشتراك) بعد تحميل البيانات
               await _saveOneSignalPlayerId(user.uid);
 
               // انتظر لحظة للتأكد من اكتمال التحميل
@@ -573,7 +580,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 );
                 await userProvider.loadUserData();
 
-                // ⭐ حفظ OneSignal PlayerId
+                // ⭐ حفظ/تحديث OneSignal PlayerId
                 await _saveOneSignalPlayerId(user.uid);
 
                 // ⭐⭐ التحقق من اكتمال البيانات بشكل مباشر
@@ -855,7 +862,7 @@ class _AuthScreenState extends State<AuthScreen> {
           );
           await userProvider.loadUserData();
 
-          // ⭐ حفظ OneSignal PlayerId للمستخدم الحالي
+          // ⭐ حفظ/تحديث OneSignal PlayerId للمستخدم الحالي
           await _saveOneSignalPlayerId(user.uid);
 
           // انتظر لحظة للتأكد من اكتمال التحميل

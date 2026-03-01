@@ -45,7 +45,7 @@ class UserModel {
     this.longitude,
     this.fullAddress,
     this.bio,
-    this.onesignalPlayerId, // ⭐ جديد
+    this.onesignalPlayerId,
   });
 
   // إنشاء مستخدم فارغ
@@ -119,7 +119,7 @@ class UserModel {
       longitude: locationData?['longitude'] ?? map['longitude'],
       fullAddress: locationData?['fullAddress'] ?? map['fullAddress'],
       bio: map['bio'],
-      onesignalPlayerId: map['onesignalPlayerId'], // ⭐ جديد
+      onesignalPlayerId: map['onesignalPlayerId'],
     );
   }
 
@@ -154,7 +154,7 @@ class UserModel {
       'updatedAt': Timestamp.fromDate(DateTime.now()),
       'isEmailVerified': isEmailVerified,
       'bio': bio,
-      'onesignalPlayerId': onesignalPlayerId, // ⭐ جديد
+      'onesignalPlayerId': onesignalPlayerId,
     };
   }
 
@@ -177,7 +177,7 @@ class UserModel {
     double? longitude,
     String? fullAddress,
     String? bio,
-    String? onesignalPlayerId, // ⭐ جديد
+    String? onesignalPlayerId,
   }) {
     return UserModel(
       id: id ?? this.id,

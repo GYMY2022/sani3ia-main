@@ -22,6 +22,9 @@ import 'package:snae3ya/providers/notification_provider.dart';
 // ⭐ إضافة OneSignal
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 
+// ⭐ إضافة flutter_local_notifications لإنشاء قناة الإشعارات
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+
 import 'package:snae3ya/screens/splash_screen.dart';
 import 'package:snae3ya/screens/auth_screen.dart';
 import 'package:snae3ya/screens/email_verification_screen.dart';
@@ -147,7 +150,7 @@ void main() async {
     print("❌ Supabase initialization error: $e");
   }
 
-  // ✅ تهيئة FCM والإشعارات المحلية (اختياري)
+  // ✅ تهيئة FCM والإشعارات المحلية
   try {
     final fcmService = FCMService();
     await fcmService.initialize();
@@ -161,7 +164,31 @@ void main() async {
 
   // ⭐ تهيئة OneSignal
   try {
+    // 🔥 تفعيل وضع التصحيح
+    OneSignal.Debug.setLogLevel(OSLogLevel.verbose);
+
     OneSignal.initialize("06a56c7a-1579-4cf0-997d-11982bfb1c35");
+
+    // ⭐ مراقبة حالة المستخدم
+    OneSignal.User.addObserver((state) {
+      print("📌 OneSignal User state: ${state.jsonRepresentation()}");
+    });
+
+    // ⭐ طباعة معرف الاشتراك بعد تأخير طويل (15 ثانية)
+    Future.delayed(const Duration(seconds: 15), () {
+      final subscriptionId = OneSignal.User.pushSubscription.id;
+      print(
+        "📌 OneSignal User.pushSubscription.id (after 15s): $subscriptionId",
+      );
+      if (subscriptionId != null && subscriptionId.isNotEmpty) {
+        print("✅ OneSignal Subscription is active with ID: $subscriptionId");
+      } else {
+        print(
+          "❌ OneSignal Subscription is NOT active (pushSubscription.id is null/empty).",
+        );
+      }
+    });
+
     OneSignal.Notifications.requestPermission(true);
     OneSignal.Notifications.addClickListener((event) {
       print(
@@ -183,6 +210,41 @@ void main() async {
     print("✅ OneSignal initialized successfully!");
   } catch (e) {
     print("❌ Failed to initialize OneSignal: $e");
+  }
+
+  // ⭐ إنشاء قناة إشعارات لنظام Android
+  try {
+    final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
+        FlutterLocalNotificationsPlugin();
+
+    const AndroidInitializationSettings initializationSettingsAndroid =
+        AndroidInitializationSettings('@mipmap/ic_launcher');
+    final DarwinInitializationSettings initializationSettingsIOS =
+        DarwinInitializationSettings();
+    final InitializationSettings initializationSettings =
+        InitializationSettings(
+          android: initializationSettingsAndroid,
+          iOS: initializationSettingsIOS,
+        );
+    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+    const AndroidNotificationChannel channel = AndroidNotificationChannel(
+      'high_importance_channel',
+      'الإشعارات الهامة',
+      description: 'قناة الإشعارات الهامة للرسائل والتنبيهات',
+      importance: Importance.high,
+      playSound: true,
+    );
+
+    await flutterLocalNotificationsPlugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(channel);
+
+    print("✅ تم إنشاء قناة الإشعارات بنجاح");
+  } catch (e) {
+    print("❌ فشل إنشاء قناة الإشعارات: $e");
   }
 
   final prefs = await SharedPreferences.getInstance();
